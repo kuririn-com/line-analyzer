@@ -2,9 +2,17 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  if (!kIsWeb) {
+    MobileAds.instance.initialize();
+  }
+
   runApp(const LineTalkAnalyzerApp());
 }
 
@@ -18,11 +26,10 @@ class LineTalkAnalyzerApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.green,
-          brightness: Brightness.light,
-        ),
         scaffoldBackgroundColor: const Color(0xFFF5FAF6),
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF06C755),
+        ),
       ),
       home: const LineTalkAnalyzerPage(),
     );
@@ -44,17 +51,10 @@ class _LineTalkAnalyzerPageState
 
   int _totalMessages = 0;
 
-  final Set<String> _participants = <String>{};
+  final Set<String> _participants = {};
 
-  final List<int> _weekdayCounts = <int>[
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-  ];
+  final List<int> _weekdayCounts =
+      List<int>.filled(7, 0);
 
   int _favoriteCount = 0;
   int _thanksCount = 0;
@@ -66,24 +66,18 @@ class _LineTalkAnalyzerPageState
   String _checkedWord = '';
   int _wordCount = 0;
 
-  final Map<String, int> _replyTimeTotals =
-      <String, int>{};
-
-  final Map<String, int> _replyCounts =
-      <String, int>{};
-
-  final Map<String, double> _averageReplyMinutes =
-      <String, double>{};
+  final Map<String, int> _replyTimeTotals = {};
+  final Map<String, int> _replyCounts = {};
+  final Map<String, double> _averageReplyMinutes = {};
 
   int _compatibilityScore = 0;
   int _lastingScore = 0;
 
   bool _isLoading = false;
-
   String? _errorMessage;
 
-  final List<_TalkMessage> _messages =
-      <_TalkMessage>[];
+  BannerAd? _bannerAd;
+  bool _isBannerAdReady = false;
 
   final RegExp _messagePattern =
       RegExp(r'^(\d{2}):(\d{2})');
@@ -91,7 +85,7 @@ class _LineTalkAnalyzerPageState
   final RegExp _datePattern =
       RegExp(r'^(\d{4})/(\d{1,2})/(\d{1,2})');
 
-  static const List<String> _weekdays = <String>[
+  static const List<String> _weekdays = [
     '月',
     '火',
     '水',
@@ -101,45 +95,118 @@ class _LineTalkAnalyzerPageState
     '日',
   ];
 
+  final List<_TalkMessage> _messages = [];
+
+  @override
+  void initState() {
+    super.initState();
+
+    if (!kIsWeb) {
+      _loadBannerAd();
+    }
+  }
+
+  void _loadBannerAd() {
+    final BannerAd bannerAd = BannerAd(
+      adUnitId:
+          'ca-app-pub-3940256099942544/2934735716',
+      size: AdSize.banner,
+      request: const AdRequest(),
+      listener: BannerAdListener(
+        onAdLoaded: (Ad ad) {
+          if (!mounted) {
+            ad.dispose();
+            return;
+          }
+
+          setState(() {
+            _bannerAd = ad as BannerAd;
+            _isBannerAdReady = true;
+          });
+        },
+        onAdFailedToLoad: (
+          Ad ad,
+          LoadAdError error,
+        ) {
+          ad.dispose();
+
+          if (!mounted) {
+            return;
+          }
+
+          setState(() {
+            _bannerAd = null;
+            _isBannerAdReady = false;
+          });
+        },
+      ),
+    );
+
+    _bannerAd = bannerAd;
+    bannerAd.load();
+  }
+
   @override
   void dispose() {
+    _bannerAd?.dispose();
     _wordController.dispose();
     super.dispose();
   }
 
   Future<void> _pickFile() async {
+    if (_isLoading) {
+      return;
+    }
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
     });
 
     try {
-      final List<PlatformFile> result =
-          await FilePicker.pickFiles(
+      final PlatformFile? file =
+          await FilePicker.pickFile(
         type: FileType.custom,
-        allowedExtensions: <String>['txt'],
+        allowedExtensions: ['txt'],
       );
 
-      if (result.isEmpty) {
+      if (file == null) {
+        if (!mounted) {
+          return;
+        }
+
         setState(() {
           _isLoading = false;
         });
+
         return;
       }
 
       final Uint8List bytes =
-          await result.first.readAsBytes();
+          await file.readAsBytes();
 
-      final String text = utf8.decode(bytes);
+      final String text = utf8.decode(
+        bytes,
+        allowMalformed: true,
+      );
 
       _analyzeTalk(text);
 
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
-        _fileName = result.first.name;
+        _fileName = file.name;
         _talkText = text;
         _isLoading = false;
+        _errorMessage = null;
       });
     } catch (e) {
+      if (!mounted) {
+        return;
+      }
+
       setState(() {
         _isLoading = false;
         _errorMessage =
@@ -158,13 +225,18 @@ class _LineTalkAnalyzerPageState
     _replyCounts.clear();
     _averageReplyMinutes.clear();
 
-    for (int i = 0; i < _weekdayCounts.length; i++) {
+    for (int i = 0;
+        i < _weekdayCounts.length;
+        i++) {
       _weekdayCounts[i] = 0;
     }
 
     _favoriteCount = 0;
     _thanksCount = 0;
     _lateNightCount = 0;
+
+    _checkedWord = '';
+    _wordCount = 0;
 
     DateTime? currentDate;
 
@@ -194,15 +266,11 @@ class _LineTalkAnalyzerPageState
         if (year != null &&
             month != null &&
             day != null) {
-          try {
-            currentDate = DateTime(
-              year,
-              month,
-              day,
-            );
-          } catch (_) {
-            currentDate = null;
-          }
+          currentDate = DateTime(
+            year,
+            month,
+            day,
+          );
         }
 
         continue;
@@ -228,8 +296,9 @@ class _LineTalkAnalyzerPageState
         continue;
       }
 
-      final List<String> elements =
-          line.trim().split(RegExp(r'\s+'));
+      final List<String> elements = line
+          .trim()
+          .split(RegExp(r'\s+'));
 
       if (elements.length < 2) {
         continue;
@@ -298,7 +367,9 @@ class _LineTalkAnalyzerPageState
       return;
     }
 
-    for (int i = 1; i < _messages.length; i++) {
+    for (int i = 1;
+        i < _messages.length;
+        i++) {
       final _TalkMessage previous =
           _messages[i - 1];
 
@@ -314,11 +385,11 @@ class _LineTalkAnalyzerPageState
           current.date != null) {
         final bool sameDay =
             previous.date!.year ==
-                current.date!.year &&
-            previous.date!.month ==
-                current.date!.month &&
-            previous.date!.day ==
-                current.date!.day;
+                    current.date!.year &&
+                previous.date!.month ==
+                    current.date!.month &&
+                previous.date!.day ==
+                    current.date!.day;
 
         if (!sameDay) {
           continue;
@@ -345,11 +416,14 @@ class _LineTalkAnalyzerPageState
       }
 
       _replyTimeTotals[current.participant] =
-          (_replyTimeTotals[current.participant] ?? 0) +
+          (_replyTimeTotals[current.participant] ??
+                  0) +
               difference;
 
       _replyCounts[current.participant] =
-          (_replyCounts[current.participant] ?? 0) + 1;
+          (_replyCounts[current.participant] ??
+                  0) +
+              1;
     }
 
     for (final String participant
@@ -367,7 +441,9 @@ class _LineTalkAnalyzerPageState
     }
   }
 
-  String _formatReplyTime(String participant) {
+  String _formatReplyTime(
+    String participant,
+  ) {
     final double? average =
         _averageReplyMinutes[participant];
 
@@ -375,7 +451,8 @@ class _LineTalkAnalyzerPageState
       return 'データ不足';
     }
 
-    final int minutes = average.round();
+    final int minutes =
+        average.round();
 
     if (minutes < 60) {
       return '平均$minutes分';
@@ -392,8 +469,11 @@ class _LineTalkAnalyzerPageState
     return '平均${hours}時間${remainingMinutes}分';
   }
 
-  double _getAverageReply(String participant) {
-    return _averageReplyMinutes[participant] ?? 0.0;
+  double _getAverageReply(
+    String participant,
+  ) {
+    return _averageReplyMinutes[participant] ??
+        0;
   }
 
   void _calculateFreeWord() {
@@ -405,6 +485,7 @@ class _LineTalkAnalyzerPageState
         _checkedWord = '';
         _wordCount = 0;
       });
+
       return;
     }
 
@@ -413,8 +494,11 @@ class _LineTalkAnalyzerPageState
     setState(() {});
   }
 
-  void _calculateFreeWordInternal(String word) {
+  void _calculateFreeWordInternal(
+    String word,
+  ) {
     _checkedWord = word;
+
     _wordCount =
         _countOccurrences(_talkText, word);
   }
@@ -432,7 +516,10 @@ class _LineTalkAnalyzerPageState
 
     while (true) {
       final int index =
-          text.indexOf(word, startIndex);
+          text.indexOf(
+        word,
+        startIndex,
+      );
 
       if (index == -1) {
         break;
@@ -440,7 +527,12 @@ class _LineTalkAnalyzerPageState
 
       count++;
 
-      startIndex = index + word.length;
+      startIndex =
+          index + word.length;
+
+      if (startIndex >= text.length) {
+        break;
+      }
     }
 
     return count;
@@ -465,64 +557,65 @@ class _LineTalkAnalyzerPageState
     final String personA = people[0];
     final String personB = people[1];
 
-    double messageScore = 0.0;
+    double messageScore = 0;
 
     if (_totalMessages >= 5000) {
-      messageScore = 20.0;
+      messageScore = 20;
     } else if (_totalMessages >= 2000) {
-      messageScore = 18.0;
+      messageScore = 18;
     } else if (_totalMessages >= 1000) {
-      messageScore = 16.0;
+      messageScore = 16;
     } else if (_totalMessages >= 500) {
-      messageScore = 13.0;
+      messageScore = 13;
     } else if (_totalMessages >= 200) {
-      messageScore = 10.0;
+      messageScore = 10;
     } else if (_totalMessages >= 100) {
-      messageScore = 7.0;
+      messageScore = 7;
     } else if (_totalMessages >= 30) {
-      messageScore = 4.0;
+      messageScore = 4;
     } else {
-      messageScore = 2.0;
+      messageScore = 2;
     }
 
     final int positiveWords =
         _favoriteCount + _thanksCount;
 
-    double positiveScore = 0.0;
+    double positiveScore = 0;
 
     if (positiveWords >= 100) {
-      positiveScore = 20.0;
+      positiveScore = 20;
     } else if (positiveWords >= 50) {
-      positiveScore = 18.0;
+      positiveScore = 18;
     } else if (positiveWords >= 30) {
-      positiveScore = 16.0;
+      positiveScore = 16;
     } else if (positiveWords >= 20) {
-      positiveScore = 14.0;
+      positiveScore = 14;
     } else if (positiveWords >= 10) {
-      positiveScore = 11.0;
+      positiveScore = 11;
     } else if (positiveWords >= 5) {
-      positiveScore = 8.0;
+      positiveScore = 8;
     } else if (positiveWords >= 1) {
-      positiveScore = 4.0;
+      positiveScore = 4;
     }
 
     final double lateNightRatio =
         _totalMessages == 0
-            ? 0.0
-            : _lateNightCount / _totalMessages;
+            ? 0
+            : _lateNightCount /
+                _totalMessages;
 
-    double lateNightScore = 0.0;
+    double lateNightScore = 0;
 
     if (lateNightRatio >= 0.01 &&
         lateNightRatio <= 0.15) {
-      lateNightScore = 15.0;
-    } else if (lateNightRatio > 0.0 &&
+      lateNightScore = 15;
+    } else if (lateNightRatio > 0 &&
         lateNightRatio < 0.25) {
-      lateNightScore = 11.0;
-    } else if (lateNightRatio == 0.0) {
-      lateNightScore = 5.0;
+      lateNightScore = 11;
+    } else if (lateNightRatio == 0) {
+      lateNightScore = 5;
     } else {
-      lateNightScore = 7.0;
+      lateNightScore = 7;
     }
 
     final double replyA =
@@ -531,9 +624,9 @@ class _LineTalkAnalyzerPageState
     final double replyB =
         _getAverageReply(personB);
 
-    double balanceScore = 0.0;
+    double balanceScore = 0;
 
-    if (replyA > 0.0 && replyB > 0.0) {
+    if (replyA > 0 && replyB > 0) {
       final double faster =
           replyA < replyB ? replyA : replyB;
 
@@ -541,34 +634,34 @@ class _LineTalkAnalyzerPageState
           replyA > replyB ? replyA : replyB;
 
       final double ratio =
-          slower == 0.0
-              ? 1.0
+          slower == 0
+              ? 1
               : faster / slower;
 
       if (ratio >= 0.85) {
-        balanceScore = 15.0;
+        balanceScore = 15;
       } else if (ratio >= 0.65) {
-        balanceScore = 12.0;
+        balanceScore = 12;
       } else if (ratio >= 0.45) {
-        balanceScore = 9.0;
+        balanceScore = 9;
       } else {
-        balanceScore = 5.0;
+        balanceScore = 5;
       }
     } else {
-      balanceScore = 7.0;
+      balanceScore = 7;
     }
 
-    double participantScore = 0.0;
+    double participantScore = 0;
 
     if (people.length == 2) {
-      participantScore = 10.0;
+      participantScore = 10;
     } else if (people.length == 3) {
-      participantScore = 6.0;
+      participantScore = 6;
     } else {
-      participantScore = 3.0;
+      participantScore = 3;
     }
 
-    double continuityScore = 0.0;
+    double continuityScore = 0;
 
     final int activeWeekdays =
         _weekdayCounts
@@ -576,46 +669,50 @@ class _LineTalkAnalyzerPageState
             .length;
 
     if (activeWeekdays >= 7) {
-      continuityScore = 20.0;
+      continuityScore = 20;
     } else if (activeWeekdays >= 5) {
-      continuityScore = 17.0;
+      continuityScore = 17;
     } else if (activeWeekdays >= 3) {
-      continuityScore = 13.0;
+      continuityScore = 13;
     } else if (activeWeekdays >= 2) {
-      continuityScore = 9.0;
+      continuityScore = 9;
     } else {
-      continuityScore = 5.0;
+      continuityScore = 5;
     }
 
     double rawScore =
         messageScore +
-        positiveScore +
-        lateNightScore +
-        balanceScore +
-        participantScore +
-        continuityScore;
+            positiveScore +
+            lateNightScore +
+            balanceScore +
+            participantScore +
+            continuityScore;
 
-    rawScore = rawScore.clamp(0.0, 100.0);
+    rawScore =
+        rawScore.clamp(0.0, 100.0);
 
-    _compatibilityScore = rawScore.round();
+    _compatibilityScore =
+        rawScore.round();
 
     double lasting =
         (_compatibilityScore * 0.55) +
-        (continuityScore * 1.2) +
-        (balanceScore * 0.8);
+            (continuityScore * 1.2) +
+            (balanceScore * 0.8);
 
     if (positiveWords > 0) {
-      lasting += 5.0;
+      lasting += 5;
     }
 
-    if (lateNightRatio > 0.0 &&
+    if (lateNightRatio > 0 &&
         lateNightRatio < 0.2) {
-      lasting += 4.0;
+      lasting += 4;
     }
 
-    lasting = lasting.clamp(0.0, 100.0);
+    lasting =
+        lasting.clamp(0.0, 100.0);
 
-    _lastingScore = lasting.round();
+    _lastingScore =
+        lasting.round();
   }
 
   int get _maxWeekdayCount {
@@ -625,10 +722,13 @@ class _LineTalkAnalyzerPageState
 
     final int maxValue =
         _weekdayCounts.reduce(
-      (int a, int b) => a > b ? a : b,
+      (int a, int b) =>
+          a > b ? a : b,
     );
 
-    return maxValue == 0 ? 1 : maxValue;
+    return maxValue == 0
+        ? 1
+        : maxValue;
   }
 
   void _reset() {
@@ -664,212 +764,242 @@ class _LineTalkAnalyzerPageState
       _wordController.clear();
 
       _errorMessage = null;
+      _isLoading = false;
     });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          gradient: LinearGradient(
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-            colors: <Color>[
-              Color(0xFFE8F8EC),
-              Color(0xFFF7FBF8),
-              Color(0xFFF5FAF6),
-            ],
-          ),
-        ),
-        child: SafeArea(
-          child: CustomScrollView(
-            slivers: <Widget>[
-              SliverAppBar(
-                pinned: true,
-                expandedHeight: 155,
-                backgroundColor:
-                    const Color(0xFF20A04B),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                flexibleSpace:
-                    FlexibleSpaceBar(
-                  titlePadding:
-                      const EdgeInsets.only(
-                    left: 20,
-                    bottom: 16,
-                  ),
-                  title: const Text(
-                    'LINEトーク分析',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 20,
-                    ),
-                  ),
-                  background: Container(
-                    decoration:
-                        const BoxDecoration(
-                      gradient:
-                          LinearGradient(
-                        begin:
-                            Alignment.topLeft,
-                        end:
-                            Alignment.bottomRight,
-                        colors: <Color>[
-                          Color(0xFF159447),
-                          Color(0xFF65CF83),
-                        ],
-                      ),
-                    ),
-                    child: const Align(
-                      alignment:
-                          Alignment.topRight,
-                      child: Padding(
-                        padding:
-                            EdgeInsets.only(
-                          top: 25,
-                          right: 25,
-                        ),
-                        child: Icon(
-                          Icons
-                              .analytics_rounded,
-                          size: 78,
-                          color:
-                              Colors.white24,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              SliverPadding(
-                padding:
-                    const EdgeInsets.fromLTRB(
-                  16,
-                  20,
-                  16,
-                  30,
-                ),
-                sliver: SliverList(
-                  delegate:
-                      SliverChildListDelegate(
-                    <Widget>[
-                      _buildIntroduction(),
-                      const SizedBox(height: 16),
-                      _buildFilePickerCard(),
-                      if (_errorMessage != null) ...<Widget>[
-                        const SizedBox(height: 14),
-                        _buildErrorCard(),
-                      ],
-                      if (_isLoading) ...<Widget>[
-                        const SizedBox(height: 14),
-                        _buildLoadingCard(),
-                      ],
-                      if (_fileName.isNotEmpty &&
-                          !_isLoading) ...<Widget>[
-                        const SizedBox(height: 18),
-                        _buildFileInfoCard(),
-                        const SizedBox(height: 18),
-                        _buildCompatibilityCard(),
-                        const SizedBox(height: 16),
-                        _buildBasicResultCard(),
-                        const SizedBox(height: 16),
-                        _buildParticipantsCard(),
-                        const SizedBox(height: 16),
-                        _buildReplySpeedCard(),
-                        const SizedBox(height: 16),
-                        _buildFreeWordCard(),
-                        const SizedBox(height: 16),
-                        _buildStandardWordCard(),
-                        const SizedBox(height: 16),
-                        _buildLateNightCard(),
-                        const SizedBox(height: 16),
-                        _buildWeekdayChartCard(),
-                        const SizedBox(height: 20),
-                        _buildResetButton(),
-                      ],
-                      const SizedBox(height: 28),
-                      _buildAdBanner(),
-                      const SizedBox(height: 10),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ),
+      backgroundColor:
+          const Color(0xFFF5FAF6),
+      body: SafeArea(
+        child: Column(
+          children: [
+            _buildHeader(),
+            Expanded(
+              child: _fileName.isEmpty
+                  ? _buildHomeScreen()
+                  : _buildAnalysisScreen(),
+            ),
+            _buildAdBanner(),
+          ],
         ),
       ),
     );
   }
 
+  Widget _buildHeader() {
+    return Container(
+      height: 68,
+      width: double.infinity,
+      padding:
+          const EdgeInsets.symmetric(
+        horizontal: 22,
+      ),
+      decoration:
+          const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [
+            Color(0xFF075C32),
+            Color(0xFF159447),
+          ],
+        ),
+      ),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Text(
+              'LINEトーク分析',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 21,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+          Icon(
+            Icons.analytics_rounded,
+            size: 38,
+            color:
+                Colors.white.withOpacity(0.20),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHomeScreen() {
+    return SingleChildScrollView(
+      padding:
+          const EdgeInsets.fromLTRB(
+        18,
+        0,
+        18,
+        24,
+      ),
+      child: Column(
+        children: [
+          _buildIntroduction(),
+          const SizedBox(height: 18),
+          _buildFilePickerCard(),
+          if (_errorMessage != null) ...[
+            const SizedBox(height: 14),
+            _buildErrorCard(),
+          ],
+          if (_isLoading) ...[
+            const SizedBox(height: 14),
+            _buildLoadingCard(),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildAnalysisScreen() {
+    return SingleChildScrollView(
+      padding:
+          const EdgeInsets.fromLTRB(
+        18,
+        0,
+        18,
+        24,
+      ),
+      child: Column(
+        children: [
+          _buildIntroduction(),
+          const SizedBox(height: 18),
+          _buildFileInfoCard(),
+          const SizedBox(height: 18),
+          _buildCompatibilityCard(),
+          const SizedBox(height: 16),
+          _buildBasicResultCard(),
+          const SizedBox(height: 16),
+          _buildParticipantsCard(),
+          const SizedBox(height: 16),
+          _buildReplySpeedCard(),
+          const SizedBox(height: 16),
+          _buildFreeWordCard(),
+          const SizedBox(height: 16),
+          _buildStandardWordCard(),
+          const SizedBox(height: 16),
+          _buildLateNightCard(),
+          const SizedBox(height: 16),
+          _buildWeekdayChartCard(),
+          const SizedBox(height: 18),
+          _buildResetButton(),
+        ],
+      ),
+    );
+  }
+
   Widget _buildIntroduction() {
-    return Column(
-      crossAxisAlignment:
-          CrossAxisAlignment.start,
-      children: <Widget>[
-        const Text(
-          '二人のトークを\nちょっと本気で分析。',
-          style: TextStyle(
-            fontSize: 28,
-            height: 1.25,
-            fontWeight: FontWeight.w800,
-            color: Color(0xFF183C24),
+    return Container(
+      width: double.infinity,
+      color: Colors.white,
+      padding:
+          const EdgeInsets.fromLTRB(
+        4,
+        24,
+        4,
+        20,
+      ),
+      child: Column(
+        crossAxisAlignment:
+            CrossAxisAlignment.start,
+        children: [
+          const Text(
+            '二人のトークを\nちょっと本気で分析。',
+            style: TextStyle(
+              fontSize: 28,
+              height: 1.25,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF171717),
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        Text(
-          'メッセージ数、返信スピード、'
-          '定番ワード、深夜トークまでまとめてチェック。',
-          style: TextStyle(
-            fontSize: 14,
-            height: 1.6,
-            color: Colors.grey.shade700,
+          const SizedBox(height: 9),
+          Text(
+            'メッセージ数、返信スピード、定番ワード、深夜トークまでまとめてチェック。',
+            style: TextStyle(
+              fontSize: 13,
+              height: 1.55,
+              color: Colors.grey.shade500,
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
   Widget _buildFilePickerCard() {
-    return _buildCard(
+    return Container(
+      width: double.infinity,
+      padding:
+          const EdgeInsets.fromLTRB(
+        22,
+        30,
+        22,
+        26,
+      ),
+      decoration:
+          BoxDecoration(
+        color: Colors.white,
+        borderRadius:
+            BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFE6E6E6),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color:
+                Colors.black.withOpacity(0.06),
+            blurRadius: 18,
+            offset:
+                const Offset(0, 7),
+          ),
+        ],
+      ),
       child: Column(
-        children: <Widget>[
+        children: [
           Container(
-            width: 68,
-            height: 68,
+            width: 72,
+            height: 72,
             decoration:
                 BoxDecoration(
               color:
-                  const Color(0xFFE3F6E8),
+                  const Color(0xFFE8F8EC),
               borderRadius:
-                  BorderRadius.circular(22),
+                  BorderRadius.circular(19),
             ),
             child: const Icon(
               Icons.file_open_rounded,
-              color: Colors.green,
-              size: 34,
-            ),
-          ),
-          const SizedBox(height: 14),
-          const Text(
-            'LINEトーク履歴を選択',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 5),
-          Text(
-            '.txtファイルに対応しています',
-            style: TextStyle(
-              color: Colors.grey.shade600,
-              fontSize: 13,
+              color: Color(0xFF4CAF50),
+              size: 38,
             ),
           ),
           const SizedBox(height: 18),
+          const Text(
+            'LINEトーク履歴を選択',
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF222222),
+            ),
+          ),
+          const SizedBox(height: 7),
+          Text(
+            '.txtファイルに対応しています',
+            style: TextStyle(
+              fontSize: 12,
+              color: Colors.grey.shade500,
+            ),
+          ),
+          const SizedBox(height: 23),
           SizedBox(
             width: double.infinity,
-            height: 52,
+            height: 54,
             child: FilledButton.icon(
               onPressed:
                   _isLoading ? null : _pickFile,
@@ -879,20 +1009,22 @@ class _LineTalkAnalyzerPageState
               label: const Text(
                 'ファイルを選択する',
                 style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
                 ),
               ),
               style:
                   FilledButton.styleFrom(
                 backgroundColor:
-                    Colors.green,
+                    const Color(0xFF06C755),
                 foregroundColor:
                     Colors.white,
+                disabledBackgroundColor:
+                    const Color(0xFF8ED9AC),
                 shape:
                     RoundedRectangleBorder(
                   borderRadius:
-                      BorderRadius.circular(15),
+                      BorderRadius.circular(13),
                 ),
               ),
             ),
@@ -904,6 +1036,7 @@ class _LineTalkAnalyzerPageState
 
   Widget _buildFileInfoCard() {
     return Container(
+      width: double.infinity,
       padding:
           const EdgeInsets.all(14),
       decoration:
@@ -916,7 +1049,7 @@ class _LineTalkAnalyzerPageState
         ),
       ),
       child: Row(
-        children: <Widget>[
+        children: [
           Container(
             width: 42,
             height: 42,
@@ -936,7 +1069,7 @@ class _LineTalkAnalyzerPageState
             child: Column(
               crossAxisAlignment:
                   CrossAxisAlignment.start,
-              children: <Widget>[
+              children: [
                 const Text(
                   '解析中のファイル',
                   style: TextStyle(
@@ -947,11 +1080,11 @@ class _LineTalkAnalyzerPageState
                 const SizedBox(height: 2),
                 Text(
                   _fileName,
+                  overflow:
+                      TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontWeight: FontWeight.bold,
                   ),
-                  overflow:
-                      TextOverflow.ellipsis,
                 ),
               ],
             ),
@@ -976,7 +1109,7 @@ class _LineTalkAnalyzerPageState
             const LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: <Color>[
+          colors: [
             Color(0xFFFFE8F0),
             Color(0xFFFFF5F8),
             Color(0xFFEFFAF3),
@@ -987,46 +1120,28 @@ class _LineTalkAnalyzerPageState
         border: Border.all(
           color: const Color(0xFFFFC6D8),
         ),
-        boxShadow: <BoxShadow>[
+        boxShadow: [
           BoxShadow(
-            color: Colors.pink.withValues(
-              alpha: 0.10,
-            ),
+            color:
+                Colors.pink.withOpacity(0.10),
             blurRadius: 20,
-            offset: const Offset(0, 8),
+            offset:
+                const Offset(0, 8),
           ),
         ],
       ),
       child: Column(
-        children: <Widget>[
-          Row(
-            mainAxisAlignment:
-                MainAxisAlignment.center,
-            children: const <Widget>[
-              Text(
-                '💗',
-                style:
-                    TextStyle(fontSize: 25),
-              ),
-              SizedBox(width: 8),
-              Text(
-                'ふたりのトーク診断',
-                style: TextStyle(
-                  fontSize: 19,
-                  fontWeight:
-                      FontWeight.w800,
-                  color: Color(0xFF9C3155),
-                ),
-              ),
-              SizedBox(width: 8),
-              Text(
-                '💗',
-                style:
-                    TextStyle(fontSize: 25),
-              ),
-            ],
+        children: [
+          const Text(
+            '💗 ふたりのトーク診断 💗',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 20,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF9C3155),
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 7),
           Text(
             'トークデータから独自アルゴリズムで算出',
             style: TextStyle(
@@ -1036,7 +1151,7 @@ class _LineTalkAnalyzerPageState
           ),
           const SizedBox(height: 20),
           Row(
-            children: <Widget>[
+            children: [
               Expanded(
                 child: _buildScoreCircle(
                   title: '相性',
@@ -1064,16 +1179,17 @@ class _LineTalkAnalyzerPageState
             width: double.infinity,
             padding:
                 const EdgeInsets.all(13),
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(
-                alpha: 0.72,
-              ),
+            decoration:
+                BoxDecoration(
+              color:
+                  Colors.white.withOpacity(0.75),
               borderRadius:
                   BorderRadius.circular(14),
             ),
             child: Text(
               _getCompatibilityMessage(),
-              textAlign: TextAlign.center,
+              textAlign:
+                  TextAlign.center,
               style: const TextStyle(
                 fontSize: 13,
                 height: 1.5,
@@ -1109,14 +1225,13 @@ class _LineTalkAnalyzerPageState
       ),
       decoration:
           BoxDecoration(
-        color: Colors.white.withValues(
-          alpha: 0.8,
-        ),
+        color:
+            Colors.white.withOpacity(0.82),
         borderRadius:
             BorderRadius.circular(20),
       ),
       child: Column(
-        children: <Widget>[
+        children: [
           Text(
             title,
             style: TextStyle(
@@ -1141,7 +1256,7 @@ class _LineTalkAnalyzerPageState
             child: Column(
               mainAxisAlignment:
                   MainAxisAlignment.center,
-              children: <Widget>[
+              children: [
                 Text(
                   '$score',
                   style: TextStyle(
@@ -1199,14 +1314,14 @@ class _LineTalkAnalyzerPageState
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
-        children: <Widget>[
+        children: [
           _buildSectionHeader(
             icon: Icons.chat_rounded,
             title: '基本集計',
           ),
           const SizedBox(height: 18),
           Row(
-            children: <Widget>[
+            children: [
               Expanded(
                 child: _buildStatBox(
                   icon:
@@ -1253,7 +1368,7 @@ class _LineTalkAnalyzerPageState
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
-        children: <Widget>[
+        children: [
           Icon(
             icon,
             color: Colors.green,
@@ -1271,7 +1386,7 @@ class _LineTalkAnalyzerPageState
           Row(
             crossAxisAlignment:
                 CrossAxisAlignment.end,
-            children: <Widget>[
+            children: [
               Text(
                 value,
                 style: const TextStyle(
@@ -1311,7 +1426,7 @@ class _LineTalkAnalyzerPageState
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
-        children: <Widget>[
+        children: [
           _buildSectionHeader(
             icon: Icons.groups_rounded,
             title: '参加者一覧',
@@ -1323,7 +1438,8 @@ class _LineTalkAnalyzerPageState
             Text(
               '参加者を検出できませんでした。',
               style: TextStyle(
-                color: Colors.grey.shade600,
+                color:
+                    Colors.grey.shade600,
               ),
             )
           else
@@ -1347,20 +1463,17 @@ class _LineTalkAnalyzerPageState
                         0xFFEAF7ED,
                       ),
                       borderRadius:
-                          BorderRadius.circular(
-                        30,
-                      ),
+                          BorderRadius
+                              .circular(30),
                     ),
                     child: Row(
                       mainAxisSize:
                           MainAxisSize.min,
-                      children: <Widget>[
+                      children: [
                         const Icon(
-                          Icons
-                              .person_rounded,
+                          Icons.person_rounded,
                           size: 17,
-                          color:
-                              Colors.green,
+                          color: Colors.green,
                         ),
                         const SizedBox(
                             width: 5),
@@ -1395,7 +1508,7 @@ class _LineTalkAnalyzerPageState
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
-        children: <Widget>[
+        children: [
           _buildSectionHeader(
             icon: Icons.speed_rounded,
             title: '返信スピード比較',
@@ -1421,18 +1534,17 @@ class _LineTalkAnalyzerPageState
                 color:
                     const Color(0xFFF5F7F6),
                 borderRadius:
-                    BorderRadius.circular(
-                  14,
-                ),
+                    BorderRadius.circular(14),
               ),
               child: const Text(
                 '2人以上の参加者データが必要です。',
-                textAlign: TextAlign.center,
+                textAlign:
+                    TextAlign.center,
               ),
             )
-          else ...<Widget>[
+          else ...[
             Row(
-              children: <Widget>[
+              children: [
                 Expanded(
                   child:
                       _buildReplyPersonCard(
@@ -1469,9 +1581,6 @@ class _LineTalkAnalyzerPageState
     String participant,
     Color color,
   ) {
-    final double average =
-        _getAverageReply(participant);
-
     final int replyCount =
         _replyCounts[participant] ?? 0;
 
@@ -1480,25 +1589,21 @@ class _LineTalkAnalyzerPageState
           const EdgeInsets.all(15),
       decoration:
           BoxDecoration(
-        color: color.withValues(
-          alpha: 0.08,
-        ),
+        color:
+            color.withOpacity(0.08),
         borderRadius:
             BorderRadius.circular(17),
         border: Border.all(
-          color: color.withValues(
-            alpha: 0.25,
-          ),
+          color:
+              color.withOpacity(0.25),
         ),
       ),
       child: Column(
-        children: <Widget>[
+        children: [
           CircleAvatar(
             radius: 24,
             backgroundColor:
-                color.withValues(
-              alpha: 0.15,
-            ),
+                color.withOpacity(0.15),
             child: Icon(
               Icons.person_rounded,
               color: color,
@@ -1517,7 +1622,9 @@ class _LineTalkAnalyzerPageState
           ),
           const SizedBox(height: 6),
           Text(
-            _formatReplyTime(participant),
+            _formatReplyTime(
+              participant,
+            ),
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 17,
@@ -1536,16 +1643,6 @@ class _LineTalkAnalyzerPageState
               color: Colors.grey.shade600,
             ),
           ),
-          if (average > 0) ...<Widget>[
-            const SizedBox(height: 3),
-            Text(
-              '${average.round()}分',
-              style: TextStyle(
-                fontSize: 9,
-                color: color,
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -1561,7 +1658,7 @@ class _LineTalkAnalyzerPageState
     final double b =
         _getAverageReply(personB);
 
-    if (a <= 0.0 || b <= 0.0) {
+    if (a <= 0 || b <= 0) {
       return Container(
         width: double.infinity,
         padding:
@@ -1575,8 +1672,10 @@ class _LineTalkAnalyzerPageState
         ),
         child: const Text(
           '返信スピードの比較には、両者の返信データが必要です。',
-          textAlign: TextAlign.center,
-          style: TextStyle(fontSize: 12),
+          textAlign:
+              TextAlign.center,
+          style:
+              TextStyle(fontSize: 12),
         ),
       );
     }
@@ -1584,27 +1683,24 @@ class _LineTalkAnalyzerPageState
     final double maxValue =
         a > b ? a : b;
 
-    final double aRatio =
-        a / maxValue;
+    final int aFlex = _safeFlex(
+      a / maxValue,
+    );
 
-    final double bRatio =
-        b / maxValue;
-
-    final int aFlex =
-        (aRatio * 100).round().clamp(1, 100);
-
-    final int bFlex =
-        (bRatio * 100).round().clamp(1, 100);
+    final int bFlex = _safeFlex(
+      b / maxValue,
+    );
 
     return Column(
       crossAxisAlignment:
           CrossAxisAlignment.start,
-      children: <Widget>[
+      children: [
         Text(
           '返信時間のバランス',
           style: TextStyle(
             fontSize: 12,
-            fontWeight: FontWeight.bold,
+            fontWeight:
+                FontWeight.bold,
             color: Colors.grey.shade700,
           ),
         ),
@@ -1613,7 +1709,7 @@ class _LineTalkAnalyzerPageState
           borderRadius:
               BorderRadius.circular(20),
           child: Row(
-            children: <Widget>[
+            children: [
               Expanded(
                 flex: aFlex,
                 child: Container(
@@ -1636,8 +1732,9 @@ class _LineTalkAnalyzerPageState
         const SizedBox(height: 7),
         Row(
           mainAxisAlignment:
-              MainAxisAlignment.spaceBetween,
-          children: <Widget>[
+              MainAxisAlignment
+                  .spaceBetween,
+          children: [
             Flexible(
               child: Text(
                 '$personA：${a.round()}分',
@@ -1645,7 +1742,8 @@ class _LineTalkAnalyzerPageState
                     TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 11,
-                  color: Color(0xFF4D9DE0),
+                  color:
+                      Color(0xFF4D9DE0),
                   fontWeight:
                       FontWeight.bold,
                 ),
@@ -1660,7 +1758,8 @@ class _LineTalkAnalyzerPageState
                     TextOverflow.ellipsis,
                 style: const TextStyle(
                   fontSize: 11,
-                  color: Color(0xFFE86A92),
+                  color:
+                      Color(0xFFE86A92),
                   fontWeight:
                       FontWeight.bold,
                 ),
@@ -1672,77 +1771,58 @@ class _LineTalkAnalyzerPageState
     );
   }
 
+  int _safeFlex(double ratio) {
+    final int value =
+        (ratio * 100).round();
+
+    if (value < 1) {
+      return 1;
+    }
+
+    if (value > 100) {
+      return 100;
+    }
+
+    return value;
+  }
+
   Widget _buildFreeWordCard() {
     return Container(
+      width: double.infinity,
       padding:
           const EdgeInsets.all(20),
       decoration:
           BoxDecoration(
-        color: Colors.white,
+        color: const Color(0xFFF2F8FF),
         borderRadius:
             BorderRadius.circular(20),
         border: Border.all(
           color: const Color(0xFFD5E9FF),
         ),
-        boxShadow: <BoxShadow>[
-          BoxShadow(
-            color: Colors.blue.withValues(
-              alpha: 0.05,
-            ),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
-        children: <Widget>[
-          Row(
-            children: <Widget>[
-              Container(
-                width: 40,
-                height: 40,
-                decoration:
-                    BoxDecoration(
-                  color:
-                      const Color(0xFFE6F2FF),
-                  borderRadius:
-                      BorderRadius.circular(12),
-                ),
-                child: const Icon(
-                  Icons.search_rounded,
-                  color:
-                      Color(0xFF3188D6),
-                ),
-              ),
-              const SizedBox(width: 11),
-              const Expanded(
-                child: Text(
-                  '自由ワードチェック',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight:
-                        FontWeight.bold,
-                    color:
-                        Color(0xFF174D7A),
-                  ),
-                ),
-              ),
-            ],
+        children: [
+          const Text(
+            '🔍 自由ワードチェック',
+            style: TextStyle(
+              fontSize: 19,
+              fontWeight: FontWeight.w900,
+              color: Color(0xFF174D7A),
+            ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
           Text(
             '好きな言葉を入力して、トーク全体で何回登場したか調べます。',
             style: TextStyle(
-              fontSize: 13,
-              height: 1.5,
+              fontSize: 12,
               color: Colors.grey.shade700,
             ),
           ),
           const SizedBox(height: 15),
           Row(
-            children: <Widget>[
+            children: [
               Expanded(
                 child: TextField(
                   controller:
@@ -1755,16 +1835,15 @@ class _LineTalkAnalyzerPageState
                   decoration:
                       InputDecoration(
                     hintText:
-                        '例：デート、名前',
+                        '例：会いたい、楽しい',
                     prefixIcon:
                         const Icon(
-                      Icons.edit_rounded,
+                      Icons.search_rounded,
                       color:
                           Color(0xFF3188D6),
                     ),
                     filled: true,
-                    fillColor:
-                        const Color(0xFFF4F8FC),
+                    fillColor: Colors.white,
                     border:
                         OutlineInputBorder(
                       borderRadius:
@@ -1773,12 +1852,6 @@ class _LineTalkAnalyzerPageState
                       ),
                       borderSide:
                           BorderSide.none,
-                    ),
-                    contentPadding:
-                        const EdgeInsets
-                            .symmetric(
-                      horizontal: 14,
-                      vertical: 14,
                     ),
                   ),
                 ),
@@ -1794,7 +1867,9 @@ class _LineTalkAnalyzerPageState
                   style:
                       FilledButton.styleFrom(
                     backgroundColor:
-                        const Color(0xFF3188D6),
+                        const Color(
+                      0xFF3188D6,
+                    ),
                     foregroundColor:
                         Colors.white,
                     shape:
@@ -1803,11 +1878,6 @@ class _LineTalkAnalyzerPageState
                           BorderRadius.circular(
                         14,
                       ),
-                    ),
-                    padding:
-                        const EdgeInsets
-                            .symmetric(
-                      horizontal: 17,
                     ),
                   ),
                   child: const Text(
@@ -1821,30 +1891,23 @@ class _LineTalkAnalyzerPageState
               ),
             ],
           ),
-          if (_checkedWord.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 16),
+          if (_checkedWord.isNotEmpty) ...[
+            const SizedBox(height: 15),
             Container(
               width: double.infinity,
               padding:
-                  const EdgeInsets.all(17),
+                  const EdgeInsets.all(15),
               decoration:
-                  const BoxDecoration(
-                gradient:
-                    LinearGradient(
-                  colors: <Color>[
-                    Color(0xFFE8F3FF),
-                    Color(0xFFF3F8FF),
-                  ],
-                ),
+                  BoxDecoration(
+                color: Colors.white,
                 borderRadius:
-                    BorderRadius.all(
-                  Radius.circular(15),
-                ),
+                    BorderRadius.circular(14),
               ),
               child: Row(
-                children: <Widget>[
+                children: [
                   const Icon(
-                    Icons.auto_awesome_rounded,
+                    Icons
+                        .auto_awesome_rounded,
                     color:
                         Color(0xFF3188D6),
                   ),
@@ -1881,25 +1944,28 @@ class _LineTalkAnalyzerPageState
 
   Widget _buildStandardWordCard() {
     final int total =
-        _favoriteCount + _thanksCount;
+        _favoriteCount +
+            _thanksCount;
 
     return _buildCard(
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
-        children: <Widget>[
+        children: [
           _buildSectionHeader(
-            icon: Icons.favorite_rounded,
+            icon:
+                Icons.favorite_rounded,
             title: '定番ワード',
             trailing: '合計 $total 回',
           ),
           const SizedBox(height: 16),
           Row(
-            children: <Widget>[
+            children: [
               Expanded(
                 child: _buildWordResult(
                   word: '好き',
-                  count: _favoriteCount,
+                  count:
+                      _favoriteCount,
                   icon:
                       Icons.favorite_rounded,
                 ),
@@ -1908,7 +1974,8 @@ class _LineTalkAnalyzerPageState
               Expanded(
                 child: _buildWordResult(
                   word: '感謝',
-                  count: _thanksCount,
+                  count:
+                      _thanksCount,
                   icon:
                       Icons
                           .volunteer_activism_rounded,
@@ -1931,13 +1998,12 @@ class _LineTalkAnalyzerPageState
           const EdgeInsets.all(15),
       decoration:
           BoxDecoration(
-        color:
-            const Color(0xFFF7FAF7),
+        color: const Color(0xFFF7FAF7),
         borderRadius:
             BorderRadius.circular(15),
       ),
       child: Column(
-        children: <Widget>[
+        children: [
           Icon(
             icon,
             color: Colors.green,
@@ -1947,7 +2013,8 @@ class _LineTalkAnalyzerPageState
           Text(
             word,
             style: const TextStyle(
-              fontWeight: FontWeight.bold,
+              fontWeight:
+                  FontWeight.bold,
             ),
           ),
           const SizedBox(height: 3),
@@ -1955,8 +2022,10 @@ class _LineTalkAnalyzerPageState
             '$count回',
             style: const TextStyle(
               fontSize: 22,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF226B36),
+              fontWeight:
+                  FontWeight.w800,
+              color:
+                  Color(0xFF226B36),
             ),
           ),
         ],
@@ -1975,7 +2044,7 @@ class _LineTalkAnalyzerPageState
             LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: <Color>[
+          colors: [
             Color(0xFF173B28),
             Color(0xFF276443),
           ],
@@ -1986,15 +2055,15 @@ class _LineTalkAnalyzerPageState
         ),
       ),
       child: Row(
-        children: <Widget>[
+        children: [
           Container(
             width: 55,
             height: 55,
             decoration:
                 BoxDecoration(
-              color: Colors.white.withValues(
-                alpha: 0.12,
-              ),
+              color:
+                  Colors.white
+                      .withOpacity(0.12),
               borderRadius:
                   BorderRadius.circular(17),
             ),
@@ -2009,7 +2078,7 @@ class _LineTalkAnalyzerPageState
             child: Column(
               crossAxisAlignment:
                   CrossAxisAlignment.start,
-              children: <Widget>[
+              children: [
                 Text(
                   '深夜トーク',
                   style: TextStyle(
@@ -2023,7 +2092,8 @@ class _LineTalkAnalyzerPageState
                 Text(
                   '2:00〜4:59に送信されたメッセージ',
                   style: TextStyle(
-                    color: Colors.white70,
+                    color:
+                        Colors.white70,
                     fontSize: 12,
                   ),
                 ),
@@ -2057,7 +2127,7 @@ class _LineTalkAnalyzerPageState
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
-        children: <Widget>[
+        children: [
           _buildSectionHeader(
             icon:
                 Icons.bar_chart_rounded,
@@ -2078,7 +2148,7 @@ class _LineTalkAnalyzerPageState
               crossAxisAlignment:
                   CrossAxisAlignment.end,
               children:
-                  List<Widget>.generate(
+                  List.generate(
                 7,
                 (int index) {
                   final int count =
@@ -2089,10 +2159,10 @@ class _LineTalkAnalyzerPageState
                           _maxWeekdayCount;
 
                   final double barHeight =
-                      ratio == 0.0
-                          ? 8.0
-                          : 20.0 +
-                              (150.0 * ratio);
+                      ratio == 0
+                          ? 8
+                          : 20 +
+                              (150 * ratio);
 
                   return Expanded(
                     child: Padding(
@@ -2105,27 +2175,21 @@ class _LineTalkAnalyzerPageState
                         mainAxisAlignment:
                             MainAxisAlignment
                                 .end,
-                        children: <Widget>[
+                        children: [
                           Text(
                             '$count',
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight:
                                   FontWeight.bold,
-                              color:
-                                  Colors.grey
-                                      .shade700,
+                              color: Colors
+                                  .grey
+                                  .shade700,
                             ),
                           ),
                           const SizedBox(
                               height: 5),
-                          AnimatedContainer(
-                            duration:
-                                const Duration(
-                              milliseconds: 500,
-                            ),
-                            curve:
-                                Curves.easeOut,
+                          Container(
                             height: barHeight,
                             width:
                                 double.infinity,
@@ -2139,7 +2203,7 @@ class _LineTalkAnalyzerPageState
                                 end:
                                     Alignment
                                         .bottomCenter,
-                                colors: <Color>[
+                                colors: [
                                   Color(
                                       0xFF65CE82),
                                   Color(
@@ -2150,7 +2214,8 @@ class _LineTalkAnalyzerPageState
                                   BorderRadius
                                       .vertical(
                                 top:
-                                    Radius.circular(
+                                    Radius
+                                        .circular(
                                   9,
                                 ),
                               ),
@@ -2164,9 +2229,9 @@ class _LineTalkAnalyzerPageState
                               fontSize: 12,
                               fontWeight:
                                   FontWeight.bold,
-                              color:
-                                  Colors.grey
-                                      .shade700,
+                              color: Colors
+                                  .grey
+                                  .shade700,
                             ),
                           ),
                         ],
@@ -2178,29 +2243,6 @@ class _LineTalkAnalyzerPageState
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _buildAdBanner() {
-    return Container(
-      width: double.infinity,
-      height: 70,
-      decoration:
-          BoxDecoration(
-        color: Colors.grey.shade300,
-        borderRadius:
-            BorderRadius.circular(12),
-      ),
-      alignment: Alignment.center,
-      child: Text(
-        'ここにGoogle AdMobの広告が表示されます',
-        textAlign: TextAlign.center,
-        style: TextStyle(
-          color: Colors.grey.shade700,
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-        ),
       ),
     );
   }
@@ -2217,13 +2259,16 @@ class _LineTalkAnalyzerPageState
         label: const Text(
           '別のトーク履歴を分析する',
           style: TextStyle(
-            fontWeight: FontWeight.bold,
+            fontWeight:
+                FontWeight.bold,
           ),
         ),
         style:
             OutlinedButton.styleFrom(
-          foregroundColor: Colors.green,
-          side: const BorderSide(
+          foregroundColor:
+              Colors.green,
+          side:
+              const BorderSide(
             color: Colors.green,
             width: 1.3,
           ),
@@ -2237,6 +2282,31 @@ class _LineTalkAnalyzerPageState
     );
   }
 
+  Widget _buildAdBanner() {
+    if (_isBannerAdReady &&
+        _bannerAd != null) {
+      return Container(
+        width: double.infinity,
+        height: 52,
+        color: const Color(0xFFEDEDED),
+        alignment: Alignment.center,
+        child: SizedBox(
+          width: 320,
+          height: 50,
+          child: AdWidget(
+            ad: _bannerAd!,
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      height: 52,
+      color: const Color(0xFFEDEDED),
+    );
+  }
+
   Widget _buildErrorCard() {
     return Container(
       width: double.infinity,
@@ -2244,8 +2314,7 @@ class _LineTalkAnalyzerPageState
           const EdgeInsets.all(15),
       decoration:
           BoxDecoration(
-        color:
-            const Color(0xFFFFEEEE),
+        color: const Color(0xFFFFEEEE),
         borderRadius:
             BorderRadius.circular(15),
         border: Border.all(
@@ -2256,7 +2325,7 @@ class _LineTalkAnalyzerPageState
       child: Row(
         crossAxisAlignment:
             CrossAxisAlignment.start,
-        children: <Widget>[
+        children: [
           const Icon(
             Icons.error_outline_rounded,
             color: Colors.red,
@@ -2279,7 +2348,7 @@ class _LineTalkAnalyzerPageState
   Widget _buildLoadingCard() {
     return _buildCard(
       child: const Column(
-        children: <Widget>[
+        children: [
           SizedBox(
             width: 30,
             height: 30,
@@ -2293,7 +2362,8 @@ class _LineTalkAnalyzerPageState
           Text(
             'トーク履歴を解析しています…',
             style: TextStyle(
-              fontWeight: FontWeight.bold,
+              fontWeight:
+                  FontWeight.bold,
             ),
           ),
         ],
@@ -2313,13 +2383,15 @@ class _LineTalkAnalyzerPageState
         color: Colors.white,
         borderRadius:
             BorderRadius.circular(20),
-        boxShadow: <BoxShadow>[
+        boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(
-              alpha: 0.045,
+            color:
+                Colors.black.withOpacity(
+              0.045,
             ),
             blurRadius: 18,
-            offset: const Offset(0, 6),
+            offset:
+                const Offset(0, 6),
           ),
         ],
       ),
@@ -2333,7 +2405,7 @@ class _LineTalkAnalyzerPageState
     String? trailing,
   }) {
     return Row(
-      children: <Widget>[
+      children: [
         Container(
           width: 40,
           height: 40,
@@ -2354,10 +2426,13 @@ class _LineTalkAnalyzerPageState
         Expanded(
           child: Text(
             title,
-            style: const TextStyle(
+            style:
+                const TextStyle(
               fontSize: 17,
-              fontWeight: FontWeight.bold,
-              color: Color(0xFF183C24),
+              fontWeight:
+                  FontWeight.bold,
+              color:
+                  Color(0xFF183C24),
             ),
           ),
         ),
@@ -2377,8 +2452,10 @@ class _LineTalkAnalyzerPageState
             ),
             child: Text(
               trailing,
-              style: const TextStyle(
-                color: Color(0xFF24823D),
+              style:
+                  const TextStyle(
+                color:
+                    Color(0xFF24823D),
                 fontSize: 12,
                 fontWeight:
                     FontWeight.bold,
