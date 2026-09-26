@@ -26,7 +26,7 @@ class LineTalkAnalyzerApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         useMaterial3: true,
-        scaffoldBackgroundColor: const Color(0xFFF5FAF6),
+        scaffoldBackgroundColor: const Color(0xFFF6F8F7),
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF06C755),
         ),
@@ -83,7 +83,7 @@ class _LineTalkAnalyzerPageState
       RegExp(r'^(\d{2}):(\d{2})');
 
   final RegExp _datePattern =
-      RegExp(r'^(\d{4})/(\d{1,2})/(\d{1,2})');
+      RegExp(r'^\s*(\d{4})[./-](\d{1,2})[./-](\d{1,2})');
 
   static const List<String> _weekdays = [
     '月',
@@ -109,7 +109,7 @@ class _LineTalkAnalyzerPageState
   void _loadBannerAd() {
     final BannerAd bannerAd = BannerAd(
       adUnitId:
-          'ca-app-pub-3940256099942544/2934735716',
+          'ca-app-pub-9003840415284448/3327652245',
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(
@@ -326,11 +326,15 @@ class _LineTalkAnalyzerPageState
 
       _messages.add(message);
 
-      _favoriteCount +=
-          _countOccurrences(line, '好き');
+      _favoriteCount += _countWordVariants(
+        line,
+        _favoriteWords,
+      );
 
-      _thanksCount +=
-          _countOccurrences(line, '感謝');
+      _thanksCount += _countWordVariants(
+        line,
+        _thanksWords,
+      );
 
       if (hour >= 2 && hour <= 4) {
         _lateNightCount++;
@@ -501,6 +505,47 @@ class _LineTalkAnalyzerPageState
 
     _wordCount =
         _countOccurrences(_talkText, word);
+  }
+
+  static const List<String> _favoriteWords = [
+    '大好き',
+    'だいすき',
+    'ダイスキ',
+    '好き',
+    'すき',
+    'スキ',
+  ];
+
+  static const List<String> _thanksWords = [
+    'ありがとう',
+    'ありがと',
+    'せんきゅー',
+    'センキュー',
+    'せんきゅ',
+    'センキュ',
+    'サンクス',
+  ];
+
+  int _countWordVariants(
+    String text,
+    List<String> variants,
+  ) {
+    if (text.isEmpty || variants.isEmpty) {
+      return 0;
+    }
+
+    final List<String> sortedVariants =
+        List<String>.from(variants)
+          ..sort(
+            (String a, String b) =>
+                b.length.compareTo(a.length),
+          );
+
+    final RegExp pattern = RegExp(
+      sortedVariants.map(RegExp.escape).join('|'),
+    );
+
+    return pattern.allMatches(text).length;
   }
 
   int _countOccurrences(
@@ -772,7 +817,7 @@ class _LineTalkAnalyzerPageState
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor:
-          const Color(0xFFF5FAF6),
+          const Color(0xFFF6F8F7),
       body: SafeArea(
         child: Column(
           children: [
@@ -791,7 +836,7 @@ class _LineTalkAnalyzerPageState
 
   Widget _buildHeader() {
     return Container(
-      height: 68,
+      height: 66,
       width: double.infinity,
       padding:
           const EdgeInsets.symmetric(
@@ -803,28 +848,58 @@ class _LineTalkAnalyzerPageState
           begin: Alignment.centerLeft,
           end: Alignment.centerRight,
           colors: [
-            Color(0xFF075C32),
-            Color(0xFF159447),
+            Color(0xFF06A94D),
+            Color(0xFF06C755),
           ],
         ),
       ),
       child: Row(
         children: [
-          const Expanded(
-            child: Text(
-              'LINEトーク分析',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 21,
-                fontWeight: FontWeight.w800,
+          Container(
+            width: 36,
+            height: 36,
+            decoration:
+                BoxDecoration(
+              color:
+                  Colors.white.withOpacity(0.18),
+              shape: BoxShape.circle,
+            ),
+            child: const Icon(
+              Icons.chat_bubble_rounded,
+              color: Colors.white,
+              size: 20,
+            ),
+          ),
+          const SizedBox(width: 11),
+          Expanded(
+            child: SizedBox(
+              height: 32,
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: const Text(
+                    'LINEトーク分析',
+                    maxLines: 1,
+                    softWrap: false,
+                    textScaler: TextScaler.noScaling,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 20,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.2,
+                    ),
+                  ),
+                ),
               ),
             ),
           ),
           Icon(
-            Icons.analytics_rounded,
-            size: 38,
+            Icons.bar_chart_rounded,
+            size: 31,
             color:
-                Colors.white.withOpacity(0.20),
+                Colors.white.withOpacity(0.22),
           ),
         ],
       ),
@@ -843,7 +918,9 @@ class _LineTalkAnalyzerPageState
       child: Column(
         children: [
           _buildIntroduction(),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
+          _buildCoupleConceptCard(),
+          const SizedBox(height: 16),
           _buildFilePickerCard(),
           if (_errorMessage != null) ...[
             const SizedBox(height: 14),
@@ -870,9 +947,9 @@ class _LineTalkAnalyzerPageState
       child: Column(
         children: [
           _buildIntroduction(),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           _buildFileInfoCard(),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           _buildCompatibilityCard(),
           const SizedBox(height: 16),
           _buildBasicResultCard(),
@@ -898,34 +975,210 @@ class _LineTalkAnalyzerPageState
   Widget _buildIntroduction() {
     return Container(
       width: double.infinity,
-      color: Colors.white,
       padding:
           const EdgeInsets.fromLTRB(
-        4,
-        24,
-        4,
-        20,
+        5,
+        25,
+        5,
+        14,
       ),
       child: Column(
         crossAxisAlignment:
             CrossAxisAlignment.start,
         children: [
-          const Text(
-            '二人のトークを\nちょっと本気で分析。',
-            style: TextStyle(
-              fontSize: 28,
-              height: 1.25,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF171717),
-            ),
+          Row(
+            crossAxisAlignment:
+                CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment:
+                      CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '二人のトークを',
+                      style: TextStyle(
+                        fontSize: 26,
+                        height: 1.2,
+                        fontWeight:
+                            FontWeight.w900,
+                        color:
+                            Color(0xFF26332E),
+                      ),
+                    ),
+                    const SizedBox(height: 1),
+                    RichText(
+                      text: const TextSpan(
+                        children: [
+                          TextSpan(
+                            text:
+                                'ちょっと本気で',
+                            style: TextStyle(
+                              fontSize: 29,
+                              height: 1.2,
+                              fontWeight:
+                                  FontWeight.w900,
+                              color:
+                                  Color(0xFF06B653),
+                            ),
+                          ),
+                          TextSpan(
+                            text: '分析。',
+                            style: TextStyle(
+                              fontSize: 29,
+                              height: 1.2,
+                              fontWeight:
+                                  FontWeight.w900,
+                              color:
+                                  Color(0xFF26332E),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              Container(
+                width: 66,
+                height: 66,
+                decoration:
+                    BoxDecoration(
+                  gradient:
+                      const LinearGradient(
+                    begin:
+                        Alignment.topLeft,
+                    end:
+                        Alignment.bottomRight,
+                    colors: [
+                      Color(0xFFE7F8EF),
+                      Color(0xFFFFEEF3),
+                    ],
+                  ),
+                  shape: BoxShape.circle,
+                ),
+                child: const Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    Icon(
+                      Icons.bar_chart_rounded,
+                      color:
+                          Color(0xFF06B653),
+                      size: 31,
+                    ),
+                    Positioned(
+                      right: 10,
+                      top: 11,
+                      child: Icon(
+                        Icons.favorite_rounded,
+                        color:
+                            Color(0xFFE86A8D),
+                        size: 13,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 9),
+          const SizedBox(height: 10),
           Text(
-            'メッセージ数、返信スピード、定番ワード、深夜トークまでまとめてチェック。',
+            'メッセージ数、返信スピード、定番ワード、深夜トークまで、ふたりの会話を楽しくチェック。',
             style: TextStyle(
               fontSize: 13,
               height: 1.55,
-              color: Colors.grey.shade500,
+              color:
+                  Colors.grey.shade600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCoupleConceptCard() {
+    return Container(
+      width: double.infinity,
+      padding:
+          const EdgeInsets.fromLTRB(
+        20,
+        18,
+        20,
+        18,
+      ),
+      decoration:
+          BoxDecoration(
+        gradient:
+            const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFF0FAF5),
+            Color(0xFFFFF1F5),
+          ],
+        ),
+        borderRadius:
+            BorderRadius.circular(22),
+        border: Border.all(
+          color:
+              const Color(0xFFDCEFE5),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 53,
+            height: 53,
+            decoration:
+                BoxDecoration(
+              color: Colors.white,
+              shape: BoxShape.circle,
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(
+                    0xFF06B653,
+                  ).withOpacity(0.10),
+                  blurRadius: 10,
+                  offset:
+                      const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: const Icon(
+              Icons.favorite_rounded,
+              color:
+                  Color(0xFFE05A82),
+              size: 27,
+            ),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment:
+                  CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'ふたりの会話をもっと楽しもう',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight:
+                        FontWeight.w800,
+                    color:
+                        Color(0xFF315B47),
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'トーク履歴から、ふたりだけの会話の特徴を発見。',
+                  style: TextStyle(
+                    fontSize: 11,
+                    height: 1.4,
+                    color:
+                        Color(0xFF6D8278),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -939,25 +1192,27 @@ class _LineTalkAnalyzerPageState
       padding:
           const EdgeInsets.fromLTRB(
         22,
-        30,
+        28,
         22,
-        26,
+        25,
       ),
       decoration:
           BoxDecoration(
         color: Colors.white,
         borderRadius:
-            BorderRadius.circular(20),
+            BorderRadius.circular(22),
         border: Border.all(
-          color: const Color(0xFFE6E6E6),
+          color:
+              const Color(0xFFDDE9E2),
         ),
         boxShadow: [
           BoxShadow(
             color:
-                Colors.black.withOpacity(0.06),
-            blurRadius: 18,
+                const Color(0xFF245C42)
+                    .withOpacity(0.07),
+            blurRadius: 20,
             offset:
-                const Offset(0, 7),
+                const Offset(0, 8),
           ),
         ],
       ),
@@ -968,65 +1223,95 @@ class _LineTalkAnalyzerPageState
             height: 72,
             decoration:
                 BoxDecoration(
-              color:
-                  const Color(0xFFE8F8EC),
+              gradient:
+                  const LinearGradient(
+                begin:
+                    Alignment.topLeft,
+                end:
+                    Alignment.bottomRight,
+                colors: [
+                  Color(0xFFE4F8EC),
+                  Color(0xFFFFEEF3),
+                ],
+              ),
               borderRadius:
-                  BorderRadius.circular(19),
+                  BorderRadius.circular(20),
             ),
             child: const Icon(
               Icons.file_open_rounded,
-              color: Color(0xFF4CAF50),
+              color:
+                  Color(0xFF06B653),
               size: 38,
             ),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 17),
           const Text(
             'LINEトーク履歴を選択',
             style: TextStyle(
               fontSize: 20,
               fontWeight: FontWeight.w800,
-              color: Color(0xFF222222),
+              color:
+                  Color(0xFF29322F),
             ),
           ),
           const SizedBox(height: 7),
           Text(
-            '.txtファイルに対応しています',
+            'ふたりのトーク履歴 .txt ファイルに対応',
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey.shade500,
+              color:
+                  Colors.grey.shade500,
             ),
           ),
-          const SizedBox(height: 23),
+          const SizedBox(height: 21),
           SizedBox(
             width: double.infinity,
-            height: 54,
+            height: 55,
             child: FilledButton.icon(
               onPressed:
-                  _isLoading ? null : _pickFile,
+                  _isLoading
+                      ? null
+                      : _pickFile,
               icon: const Icon(
-                Icons.folder_open_rounded,
+                Icons.upload_file_rounded,
+                size: 19,
               ),
               label: const Text(
-                'ファイルを選択する',
+                'トーク履歴を読み込む',
                 style: TextStyle(
                   fontSize: 16,
-                  fontWeight: FontWeight.w800,
+                  fontWeight:
+                      FontWeight.w800,
                 ),
               ),
               style:
                   FilledButton.styleFrom(
                 backgroundColor:
-                    const Color(0xFF06C755),
+                    const Color(
+                  0xFF06C755,
+                ),
                 foregroundColor:
                     Colors.white,
                 disabledBackgroundColor:
-                    const Color(0xFF8ED9AC),
+                    const Color(
+                  0xFF9EDDB8,
+                ),
                 shape:
                     RoundedRectangleBorder(
                   borderRadius:
-                      BorderRadius.circular(13),
+                      BorderRadius.circular(15),
                 ),
+                elevation: 0,
               ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            '※トーク内容は分析のため端末上で処理されます',
+            style: TextStyle(
+              fontSize: 9,
+              color:
+                  Colors.grey.shade400,
             ),
           ),
         ],
@@ -1041,11 +1326,18 @@ class _LineTalkAnalyzerPageState
           const EdgeInsets.all(14),
       decoration:
           BoxDecoration(
-        color: const Color(0xFFE7F8EB),
+        gradient:
+            const LinearGradient(
+          colors: [
+            Color(0xFFEAF8F0),
+            Color(0xFFFFF2F5),
+          ],
+        ),
         borderRadius:
-            BorderRadius.circular(16),
+            BorderRadius.circular(17),
         border: Border.all(
-          color: const Color(0xFFC8ECCE),
+          color:
+              const Color(0xFFD8EBE0),
         ),
       ),
       child: Row(
@@ -1061,7 +1353,8 @@ class _LineTalkAnalyzerPageState
             ),
             child: const Icon(
               Icons.description_rounded,
-              color: Colors.green,
+              color:
+                  Color(0xFF06B653),
             ),
           ),
           const SizedBox(width: 12),
@@ -1071,10 +1364,11 @@ class _LineTalkAnalyzerPageState
                   CrossAxisAlignment.start,
               children: [
                 const Text(
-                  '解析中のファイル',
+                  '解析中のトーク履歴',
                   style: TextStyle(
                     fontSize: 11,
-                    color: Colors.grey,
+                    color:
+                        Color(0xFF6E887B),
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -1083,7 +1377,10 @@ class _LineTalkAnalyzerPageState
                   overflow:
                       TextOverflow.ellipsis,
                   style: const TextStyle(
-                    fontWeight: FontWeight.bold,
+                    fontWeight:
+                        FontWeight.bold,
+                    color:
+                        Color(0xFF34443C),
                   ),
                 ),
               ],
@@ -1091,7 +1388,8 @@ class _LineTalkAnalyzerPageState
           ),
           const Icon(
             Icons.check_circle_rounded,
-            color: Colors.green,
+            color:
+                Color(0xFF06B653),
           ),
         ],
       ),
@@ -1102,7 +1400,7 @@ class _LineTalkAnalyzerPageState
     return Container(
       width: double.infinity,
       padding:
-          const EdgeInsets.all(22),
+          const EdgeInsets.all(21),
       decoration:
           BoxDecoration(
         gradient:
@@ -1110,46 +1408,66 @@ class _LineTalkAnalyzerPageState
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color(0xFFFFE8F0),
-            Color(0xFFFFF5F8),
-            Color(0xFFEFFAF3),
+            Color(0xFFFFE7EE),
+            Color(0xFFFFF2F6),
+            Color(0xFFF3FAF6),
           ],
         ),
         borderRadius:
-            BorderRadius.circular(24),
+            BorderRadius.circular(25),
         border: Border.all(
-          color: const Color(0xFFFFC6D8),
+          color:
+              const Color(0xFFF1CAD6),
         ),
         boxShadow: [
           BoxShadow(
             color:
-                Colors.pink.withOpacity(0.10),
-            blurRadius: 20,
+                const Color(0xFFB55B75)
+                    .withOpacity(0.10),
+            blurRadius: 22,
             offset:
-                const Offset(0, 8),
+                const Offset(0, 9),
           ),
         ],
       ),
       child: Column(
         children: [
-          const Text(
-            '💗 ふたりのトーク診断 💗',
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF9C3155),
+          Container(
+            padding:
+                const EdgeInsets.symmetric(
+              horizontal: 15,
+              vertical: 7,
+            ),
+            decoration:
+                BoxDecoration(
+              color:
+                  Colors.white.withOpacity(0.78),
+              borderRadius:
+                  BorderRadius.circular(30),
+            ),
+            child: const Text(
+              '💗 ふたりのトーク診断 💗',
+              textAlign:
+                  TextAlign.center,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight:
+                    FontWeight.w900,
+                color:
+                    Color(0xFF9C4660),
+              ),
             ),
           ),
-          const SizedBox(height: 7),
+          const SizedBox(height: 8),
           Text(
             'トークデータから独自アルゴリズムで算出',
             style: TextStyle(
               fontSize: 11,
-              color: Colors.grey.shade700,
+              color:
+                  Colors.grey.shade700,
             ),
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 19),
           Row(
             children: [
               Expanded(
@@ -1159,22 +1477,27 @@ class _LineTalkAnalyzerPageState
                       _compatibilityScore,
                   suffix: '点',
                   color:
-                      const Color(0xFFE95480),
+                      const Color(
+                    0xFFE2537D,
+                  ),
                 ),
               ),
-              const SizedBox(width: 14),
+              const SizedBox(width: 13),
               Expanded(
                 child: _buildScoreCircle(
                   title: '長続き度',
-                  score: _lastingScore,
+                  score:
+                      _lastingScore,
                   suffix: '%',
                   color:
-                      const Color(0xFF49A968),
+                      const Color(
+                    0xFF4E9B76,
+                  ),
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 17),
           Container(
             width: double.infinity,
             padding:
@@ -1182,9 +1505,9 @@ class _LineTalkAnalyzerPageState
             decoration:
                 BoxDecoration(
               color:
-                  Colors.white.withOpacity(0.75),
+                  Colors.white.withOpacity(0.80),
               borderRadius:
-                  BorderRadius.circular(14),
+                  BorderRadius.circular(15),
             ),
             child: Text(
               _getCompatibilityMessage(),
@@ -1193,18 +1516,22 @@ class _LineTalkAnalyzerPageState
               style: const TextStyle(
                 fontSize: 13,
                 height: 1.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF6F3449),
+                fontWeight:
+                    FontWeight.w600,
+                color:
+                    Color(0xFF5E4B52),
               ),
             ),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 9),
           Text(
             '※この診断はトークデータを使ったエンタメ向けの簡易診断です。',
-            textAlign: TextAlign.center,
+            textAlign:
+                TextAlign.center,
             style: TextStyle(
               fontSize: 9,
-              color: Colors.grey.shade600,
+              color:
+                  Colors.grey.shade600,
             ),
           ),
         ],
@@ -1221,12 +1548,12 @@ class _LineTalkAnalyzerPageState
     return Container(
       padding:
           const EdgeInsets.symmetric(
-        vertical: 17,
+        vertical: 16,
       ),
       decoration:
           BoxDecoration(
         color:
-            Colors.white.withOpacity(0.82),
+            Colors.white.withOpacity(0.88),
         borderRadius:
             BorderRadius.circular(20),
       ),
@@ -1236,14 +1563,15 @@ class _LineTalkAnalyzerPageState
             title,
             style: TextStyle(
               fontSize: 13,
-              fontWeight: FontWeight.bold,
+              fontWeight:
+                  FontWeight.bold,
               color: color,
             ),
           ),
-          const SizedBox(height: 9),
+          const SizedBox(height: 8),
           Container(
-            width: 94,
-            height: 94,
+            width: 92,
+            height: 92,
             decoration:
                 BoxDecoration(
               shape: BoxShape.circle,
@@ -1252,6 +1580,13 @@ class _LineTalkAnalyzerPageState
                 width: 5,
               ),
               color: Colors.white,
+              boxShadow: [
+                BoxShadow(
+                  color:
+                      color.withOpacity(0.10),
+                  blurRadius: 10,
+                ),
+              ],
             ),
             child: Column(
               mainAxisAlignment:
@@ -1286,27 +1621,99 @@ class _LineTalkAnalyzerPageState
   }
 
   String _getCompatibilityMessage() {
-    if (_compatibilityScore >= 90) {
-      return '🎉 トークデータ上ではかなり盛り上がっている二人！';
+    if (_totalMessages == 0) {
+      return '💬 まずはトークを読み込んで、二人の会話を見てみよう！';
     }
 
-    if (_compatibilityScore >= 80) {
-      return '💞 会話のバランスが良く、かなり仲の良さが感じられます！';
+    final String baseMessage;
+
+    final bool highCompatibility =
+        _compatibilityScore >= 70;
+    final bool mediumCompatibility =
+        _compatibilityScore >= 40;
+    final bool highLasting =
+        _lastingScore >= 70;
+    final bool mediumLasting =
+        _lastingScore >= 40;
+
+if (highCompatibility && highLasting) {
+  baseMessage =
+      '🎉 会話の相性も長続き度もいい感じ！\n'
+      '二人のやり取りから、自然な盛り上がりと安定感が感じられます。';
+} else if (highCompatibility && mediumLasting) {
+  baseMessage =
+      '💞 会話の相性がかなり良好！\n'
+      '楽しく話せる土台ができているので、今のペースを大切にしていこう。';
+} else if (highCompatibility && !mediumLasting) {
+  baseMessage =
+      '✨ トークの相性がいい二人！\n'
+      '会話の楽しさはしっかり出ています。これからの積み重ねにも注目です。';
+} else if (mediumCompatibility && highLasting) {
+  baseMessage =
+      '🌱 長続きにつながる安定感がいい感じ！\n'
+      '会話量が増えていけば、二人らしい盛り上がりがさらに見えてきそうです。';
+} else if (mediumCompatibility && mediumLasting) {
+  baseMessage =
+      '😊 バランスのいいトーク！\n'
+      '今の会話を楽しみながら、少しずつ二人の時間を増やしていくと良さそうです。';
+} else if (mediumCompatibility && !mediumLasting) {
+  baseMessage =
+      '🌷 ここから伸びていく余地がたっぷり！\n'
+      'すでに会話の土台があるので、気軽なやり取りを重ねてみよう。';
+} else if (!mediumCompatibility && highLasting) {
+  baseMessage =
+      '💚 ゆっくりでも続いているところがいいポイント！\n'
+      '派手な会話量だけではなく、二人のペースで積み重ねている感じが出ています。';
+} else if (!mediumCompatibility && mediumLasting) {
+  baseMessage =
+      '🌼 二人のペースで育っているトーク！\n'
+      'これから会話が増えていくほど、相性の特徴ももっと見えてきそうです。';
+} else {
+  baseMessage =
+      '💬 ここから二人のトークが育っていく段階！\n'
+      '会話を重ねるほど、今回とは違った二人らしさも見えてきそうです。';
+}
+
+    final List<String> evaluations = [];
+
+    final List<double> replyValues =
+        _averageReplyMinutes.values
+            .where((double value) => value > 0)
+            .toList();
+
+    if (replyValues.isNotEmpty) {
+      final double averageReply =
+          replyValues.reduce((double a, double b) => a + b) /
+              replyValues.length;
+
+      if (averageReply <= 10) {
+        evaluations.add('⚡ 返信テンポがかなり速く、会話のキャッチボールが活発！');
+      } else if (averageReply <= 30) {
+        evaluations.add('💨 返信テンポがよく、スムーズなやり取りができています！');
+      } else if (averageReply <= 120) {
+        evaluations.add('💬 無理のないペースで、しっかり会話が続いています！');
+      }
     }
 
-    if (_compatibilityScore >= 70) {
-      return '😊 いい感じの会話量。これからのトークにも注目です！';
+    if (_favoriteCount >= 10) {
+      evaluations.add('💖 「好き」系の言葉がたくさん見つかって、好意がしっかり伝わるトーク！');
+    } else if (_favoriteCount >= 3) {
+      evaluations.add('💕 「好き」系の言葉もしっかり登場。二人の好意が感じられます！');
+    } else if (_favoriteCount >= 1) {
+      evaluations.add('💗 「好き」系の言葉も見つかりました。小さなプラス要素です！');
     }
 
-    if (_compatibilityScore >= 60) {
-      return '🌱 まだまだ伸びしろあり。二人の会話を楽しもう！';
+    if (_thanksCount >= 5) {
+      evaluations.add('🙏 感謝の言葉も豊富で、思いやりのあるやり取りが見えます！');
+    } else if (_thanksCount >= 1) {
+      evaluations.add('🌿 感謝の言葉も見られ、丁寧なやり取りができています！');
     }
 
-    if (_compatibilityScore >= 40) {
-      return '✨ これからデータが増えるほど診断も変化していきます。';
+    if (evaluations.isEmpty) {
+      evaluations.add('🌟 これからトークが増えるほど、二人らしいプラス評価も見つかってきます！');
     }
 
-    return '💬 まずはたくさん話して、トークデータを増やしてみよう！';
+    return '$baseMessage\n\n${evaluations.take(2).join('\n')}';
   }
 
   Widget _buildBasicResultCard() {
@@ -1316,7 +1723,7 @@ class _LineTalkAnalyzerPageState
             CrossAxisAlignment.start,
         children: [
           _buildSectionHeader(
-            icon: Icons.chat_rounded,
+            icon: Icons.chat_bubble_rounded,
             title: '基本集計',
           ),
           const SizedBox(height: 18),
@@ -1361,7 +1768,8 @@ class _LineTalkAnalyzerPageState
           const EdgeInsets.all(16),
       decoration:
           BoxDecoration(
-        color: const Color(0xFFF3FAF4),
+        color:
+            const Color(0xFFF0F8F4),
         borderRadius:
             BorderRadius.circular(16),
       ),
@@ -1371,7 +1779,8 @@ class _LineTalkAnalyzerPageState
         children: [
           Icon(
             icon,
-            color: Colors.green,
+            color:
+                const Color(0xFF06B653),
             size: 22,
           ),
           const SizedBox(height: 10),
@@ -1379,7 +1788,8 @@ class _LineTalkAnalyzerPageState
             label,
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey.shade700,
+              color:
+                  Colors.grey.shade700,
             ),
           ),
           const SizedBox(height: 3),
@@ -1393,7 +1803,8 @@ class _LineTalkAnalyzerPageState
                   fontSize: 27,
                   fontWeight:
                       FontWeight.w800,
-                  color: Color(0xFF185C2E),
+                  color:
+                      Color(0xFF19734A),
                 ),
               ),
               const SizedBox(width: 3),
@@ -1428,7 +1839,8 @@ class _LineTalkAnalyzerPageState
             CrossAxisAlignment.start,
         children: [
           _buildSectionHeader(
-            icon: Icons.groups_rounded,
+            icon:
+                Icons.people_alt_rounded,
             title: '参加者一覧',
             trailing:
                 '${participants.length}人',
@@ -1460,11 +1872,17 @@ class _LineTalkAnalyzerPageState
                         BoxDecoration(
                       color:
                           const Color(
-                        0xFFEAF7ED,
+                        0xFFF0F8F4,
                       ),
                       borderRadius:
                           BorderRadius
                               .circular(30),
+                      border: Border.all(
+                        color:
+                            const Color(
+                          0xFFD2E9DD,
+                        ),
+                      ),
                     ),
                     child: Row(
                       mainAxisSize:
@@ -1472,8 +1890,11 @@ class _LineTalkAnalyzerPageState
                       children: [
                         const Icon(
                           Icons.person_rounded,
-                          size: 17,
-                          color: Colors.green,
+                          size: 16,
+                          color:
+                              Color(
+                            0xFF06B653,
+                          ),
                         ),
                         const SizedBox(
                             width: 5),
@@ -1485,7 +1906,7 @@ class _LineTalkAnalyzerPageState
                                 FontWeight.w600,
                             color:
                                 Color(
-                              0xFF276C3A,
+                              0xFF37624D,
                             ),
                           ),
                         ),
@@ -1520,7 +1941,8 @@ class _LineTalkAnalyzerPageState
             style: TextStyle(
               fontSize: 12,
               height: 1.5,
-              color: Colors.grey.shade700,
+              color:
+                  Colors.grey.shade700,
             ),
           ),
           const SizedBox(height: 17),
@@ -1532,7 +1954,7 @@ class _LineTalkAnalyzerPageState
               decoration:
                   BoxDecoration(
                 color:
-                    const Color(0xFFF5F7F6),
+                    const Color(0xFFF3F8F5),
                 borderRadius:
                     BorderRadius.circular(14),
               ),
@@ -1550,7 +1972,7 @@ class _LineTalkAnalyzerPageState
                       _buildReplyPersonCard(
                     people[0],
                     const Color(
-                      0xFF4D9DE0,
+                      0xFF06B653,
                     ),
                   ),
                 ),
@@ -1560,7 +1982,7 @@ class _LineTalkAnalyzerPageState
                       _buildReplyPersonCard(
                     people[1],
                     const Color(
-                      0xFFE86A92,
+                      0xFFE06A8C,
                     ),
                   ),
                 ),
@@ -1607,7 +2029,7 @@ class _LineTalkAnalyzerPageState
             child: Icon(
               Icons.person_rounded,
               color: color,
-              size: 25,
+              size: 23,
             ),
           ),
           const SizedBox(height: 9),
@@ -1640,7 +2062,8 @@ class _LineTalkAnalyzerPageState
                 : '計測データなし',
             style: TextStyle(
               fontSize: 10,
-              color: Colors.grey.shade600,
+              color:
+                  Colors.grey.shade600,
             ),
           ),
         ],
@@ -1666,7 +2089,7 @@ class _LineTalkAnalyzerPageState
         decoration:
             BoxDecoration(
           color:
-              const Color(0xFFF5F7F6),
+              const Color(0xFFF4F8F6),
           borderRadius:
               BorderRadius.circular(12),
         ),
@@ -1701,7 +2124,8 @@ class _LineTalkAnalyzerPageState
             fontSize: 12,
             fontWeight:
                 FontWeight.bold,
-            color: Colors.grey.shade700,
+            color:
+                Colors.grey.shade700,
           ),
         ),
         const SizedBox(height: 8),
@@ -1715,7 +2139,7 @@ class _LineTalkAnalyzerPageState
                 child: Container(
                   height: 13,
                   color:
-                      const Color(0xFF4D9DE0),
+                      const Color(0xFF06B653),
                 ),
               ),
               Expanded(
@@ -1723,7 +2147,7 @@ class _LineTalkAnalyzerPageState
                 child: Container(
                   height: 13,
                   color:
-                      const Color(0xFFE86A92),
+                      const Color(0xFFE06A8C),
                 ),
               ),
             ],
@@ -1743,7 +2167,7 @@ class _LineTalkAnalyzerPageState
                 style: const TextStyle(
                   fontSize: 11,
                   color:
-                      Color(0xFF4D9DE0),
+                      Color(0xFF069E4D),
                   fontWeight:
                       FontWeight.bold,
                 ),
@@ -1759,7 +2183,7 @@ class _LineTalkAnalyzerPageState
                 style: const TextStyle(
                   fontSize: 11,
                   color:
-                      Color(0xFFE86A92),
+                      Color(0xFFD45C7D),
                   fontWeight:
                       FontWeight.bold,
                 ),
@@ -1793,11 +2217,20 @@ class _LineTalkAnalyzerPageState
           const EdgeInsets.all(20),
       decoration:
           BoxDecoration(
-        color: const Color(0xFFF2F8FF),
+        gradient:
+            const LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFF0FAF5),
+            Color(0xFFFFF4F7),
+          ],
+        ),
         borderRadius:
             BorderRadius.circular(20),
         border: Border.all(
-          color: const Color(0xFFD5E9FF),
+          color:
+              const Color(0xFFDCEBE2),
         ),
       ),
       child: Column(
@@ -1805,11 +2238,13 @@ class _LineTalkAnalyzerPageState
             CrossAxisAlignment.start,
         children: [
           const Text(
-            '🔍 自由ワードチェック',
+            '🔍 気になるワードをチェック',
             style: TextStyle(
               fontSize: 19,
-              fontWeight: FontWeight.w900,
-              color: Color(0xFF174D7A),
+              fontWeight:
+                  FontWeight.w900,
+              color:
+                  Color(0xFF315C48),
             ),
           ),
           const SizedBox(height: 6),
@@ -1817,7 +2252,8 @@ class _LineTalkAnalyzerPageState
             '好きな言葉を入力して、トーク全体で何回登場したか調べます。',
             style: TextStyle(
               fontSize: 12,
-              color: Colors.grey.shade700,
+              color:
+                  Colors.grey.shade700,
             ),
           ),
           const SizedBox(height: 15),
@@ -1840,10 +2276,11 @@ class _LineTalkAnalyzerPageState
                         const Icon(
                       Icons.search_rounded,
                       color:
-                          Color(0xFF3188D6),
+                          Color(0xFF06B653),
                     ),
                     filled: true,
-                    fillColor: Colors.white,
+                    fillColor:
+                        Colors.white,
                     border:
                         OutlineInputBorder(
                       borderRadius:
@@ -1852,6 +2289,19 @@ class _LineTalkAnalyzerPageState
                       ),
                       borderSide:
                           BorderSide.none,
+                    ),
+                    focusedBorder:
+                        OutlineInputBorder(
+                      borderRadius:
+                          BorderRadius.circular(
+                        14,
+                      ),
+                      borderSide:
+                          const BorderSide(
+                        color:
+                            Color(0xFF06C755),
+                        width: 1.3,
+                      ),
                     ),
                   ),
                 ),
@@ -1868,7 +2318,7 @@ class _LineTalkAnalyzerPageState
                       FilledButton.styleFrom(
                     backgroundColor:
                         const Color(
-                      0xFF3188D6,
+                      0xFF06C755,
                     ),
                     foregroundColor:
                         Colors.white,
@@ -1909,7 +2359,7 @@ class _LineTalkAnalyzerPageState
                     Icons
                         .auto_awesome_rounded,
                     color:
-                        Color(0xFF3188D6),
+                        Color(0xFFE05A82),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -1930,7 +2380,7 @@ class _LineTalkAnalyzerPageState
                       fontWeight:
                           FontWeight.w800,
                       color:
-                          Color(0xFF246EAF),
+                          Color(0xFF187A4F),
                     ),
                   ),
                 ],
@@ -1955,8 +2405,9 @@ class _LineTalkAnalyzerPageState
           _buildSectionHeader(
             icon:
                 Icons.favorite_rounded,
-            title: '定番ワード',
+            title: 'ふたりの定番ワード',
             trailing: '合計 $total 回',
+            accentPink: true,
           ),
           const SizedBox(height: 16),
           Row(
@@ -1998,15 +2449,21 @@ class _LineTalkAnalyzerPageState
           const EdgeInsets.all(15),
       decoration:
           BoxDecoration(
-        color: const Color(0xFFF7FAF7),
+        color:
+            const Color(0xFFFFF1F5),
         borderRadius:
             BorderRadius.circular(15),
+        border: Border.all(
+          color:
+              const Color(0xFFF5D6DF),
+        ),
       ),
       child: Column(
         children: [
           Icon(
             icon,
-            color: Colors.green,
+            color:
+                const Color(0xFFE2567F),
             size: 25,
           ),
           const SizedBox(height: 8),
@@ -2025,7 +2482,7 @@ class _LineTalkAnalyzerPageState
               fontWeight:
                   FontWeight.w800,
               color:
-                  Color(0xFF226B36),
+                  Color(0xFFA23B5E),
             ),
           ),
         ],
@@ -2045,8 +2502,8 @@ class _LineTalkAnalyzerPageState
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color(0xFF173B28),
-            Color(0xFF276443),
+            Color(0xFF263746),
+            Color(0xFF425D72),
           ],
         ),
         borderRadius:
@@ -2080,7 +2537,7 @@ class _LineTalkAnalyzerPageState
                   CrossAxisAlignment.start,
               children: [
                 Text(
-                  '深夜トーク',
+                  '深夜のふたり',
                   style: TextStyle(
                     color: Colors.white,
                     fontSize: 17,
@@ -2131,14 +2588,15 @@ class _LineTalkAnalyzerPageState
           _buildSectionHeader(
             icon:
                 Icons.bar_chart_rounded,
-            title: '曜日別の発言頻度',
+            title: '曜日別のトーク頻度',
           ),
           const SizedBox(height: 7),
           Text(
             '曜日ごとのメッセージ数を表示しています。',
             style: TextStyle(
               fontSize: 13,
-              color: Colors.grey.shade700,
+              color:
+                  Colors.grey.shade700,
             ),
           ),
           const SizedBox(height: 20),
@@ -2182,9 +2640,9 @@ class _LineTalkAnalyzerPageState
                               fontSize: 11,
                               fontWeight:
                                   FontWeight.bold,
-                              color: Colors
-                                  .grey
-                                  .shade700,
+                              color:
+                                  Colors.grey
+                                      .shade700,
                             ),
                           ),
                           const SizedBox(
@@ -2205,9 +2663,11 @@ class _LineTalkAnalyzerPageState
                                         .bottomCenter,
                                 colors: [
                                   Color(
-                                      0xFF65CE82),
+                                    0xFF58D68D,
+                                  ),
                                   Color(
-                                      0xFF2DA653),
+                                    0xFF06B653,
+                                  ),
                                 ],
                               ),
                               borderRadius:
@@ -2229,9 +2689,9 @@ class _LineTalkAnalyzerPageState
                               fontSize: 12,
                               fontWeight:
                                   FontWeight.bold,
-                              color: Colors
-                                  .grey
-                                  .shade700,
+                              color:
+                                  Colors.grey
+                                      .shade700,
                             ),
                           ),
                         ],
@@ -2266,10 +2726,11 @@ class _LineTalkAnalyzerPageState
         style:
             OutlinedButton.styleFrom(
           foregroundColor:
-              Colors.green,
+              const Color(0xFF06A94D),
           side:
               const BorderSide(
-            color: Colors.green,
+            color:
+                Color(0xFF06A94D),
             width: 1.3,
           ),
           shape:
@@ -2314,7 +2775,8 @@ class _LineTalkAnalyzerPageState
           const EdgeInsets.all(15),
       decoration:
           BoxDecoration(
-        color: const Color(0xFFFFEEEE),
+        color:
+            const Color(0xFFFFEEEE),
         borderRadius:
             BorderRadius.circular(15),
         border: Border.all(
@@ -2354,7 +2816,8 @@ class _LineTalkAnalyzerPageState
             height: 30,
             child:
                 CircularProgressIndicator(
-              color: Colors.green,
+              color:
+                  Color(0xFF06C755),
               strokeWidth: 3,
             ),
           ),
@@ -2383,12 +2846,15 @@ class _LineTalkAnalyzerPageState
         color: Colors.white,
         borderRadius:
             BorderRadius.circular(20),
+        border: Border.all(
+          color:
+              const Color(0xFFDDE8E2),
+        ),
         boxShadow: [
           BoxShadow(
             color:
-                Colors.black.withOpacity(
-              0.045,
-            ),
+                const Color(0xFF3D6854)
+                    .withOpacity(0.045),
             blurRadius: 18,
             offset:
                 const Offset(0, 6),
@@ -2403,7 +2869,18 @@ class _LineTalkAnalyzerPageState
     required IconData icon,
     required String title,
     String? trailing,
+    bool accentPink = false,
   }) {
+    final Color accentColor =
+        accentPink
+            ? const Color(0xFFE1557D)
+            : const Color(0xFF06B653);
+
+    final Color lightColor =
+        accentPink
+            ? const Color(0xFFFFE8EF)
+            : const Color(0xFFE6F8EE);
+
     return Row(
       children: [
         Container(
@@ -2411,14 +2888,13 @@ class _LineTalkAnalyzerPageState
           height: 40,
           decoration:
               BoxDecoration(
-            color:
-                const Color(0xFFE6F7EA),
+            color: lightColor,
             borderRadius:
                 BorderRadius.circular(12),
           ),
           child: Icon(
             icon,
-            color: Colors.green,
+            color: accentColor,
             size: 21,
           ),
         ),
@@ -2432,7 +2908,7 @@ class _LineTalkAnalyzerPageState
               fontWeight:
                   FontWeight.bold,
               color:
-                  Color(0xFF183C24),
+                  Color(0xFF35433C),
             ),
           ),
         ),
@@ -2446,16 +2922,28 @@ class _LineTalkAnalyzerPageState
             decoration:
                 BoxDecoration(
               color:
-                  const Color(0xFFEAF7ED),
+                  accentPink
+                      ? const Color(
+                          0xFFFFEDF2,
+                        )
+                      : const Color(
+                          0xFFEAF7F0,
+                        ),
               borderRadius:
                   BorderRadius.circular(20),
             ),
             child: Text(
               trailing,
               style:
-                  const TextStyle(
+                  TextStyle(
                 color:
-                    Color(0xFF24823D),
+                    accentPink
+                        ? const Color(
+                            0xFFBE4C70,
+                          )
+                        : const Color(
+                            0xFF39815E,
+                          ),
                 fontSize: 12,
                 fontWeight:
                     FontWeight.bold,

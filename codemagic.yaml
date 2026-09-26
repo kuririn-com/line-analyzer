@@ -4,20 +4,35 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m2
 
+    integrations:
+      app_store_connect: codemagic
+
     environment:
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.example.lineAnalyzer
+
       flutter: stable
       xcode: latest
       cocoapods: default
 
     scripts:
-      - name: Flutter packages
+      - name: Get Flutter packages
         script: flutter pub get
 
       - name: Install CocoaPods dependencies
         script: find . -name "Podfile" -execdir pod install \;
 
-      - name: Build iOS
-        script: flutter build ios --release --no-codesign
+      - name: Set up code signing
+        script: xcode-project use-profiles
+
+      - name: Build IPA
+        script: flutter build ipa --release
 
     artifacts:
-      - build/ios/iphoneos/**/*.app
+      - build/ios/ipa/*.ipa
+
+    publishing:
+      app_store_connect:
+        auth: integration
+        submit_to_testflight: true
