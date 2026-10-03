@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 Future<void> main() async {
@@ -24,6 +25,15 @@ class LineTalkAnalyzerApp extends StatelessWidget {
     return MaterialApp(
       title: 'LINEトーク分析',
       debugShowCheckedModeBanner: false,
+      locale: const Locale('ja', 'JP'),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('ja', 'JP'),
+      ],
       theme: ThemeData(
         useMaterial3: true,
         scaffoldBackgroundColor: const Color(0xFFF6F8F7),
@@ -82,8 +92,15 @@ class _LineTalkAnalyzerPageState
   final RegExp _messagePattern =
       RegExp(r'^(\d{2}):(\d{2})');
 
-  final RegExp _datePattern =
-      RegExp(r'^\s*(\d{4})[./-](\d{1,2})[./-](\d{1,2})');
+  // 日付ヘッダー用。先頭だけでなく行内の形式も認識する。
+  // メッセージ行は先に時刻判定するので、本文中の日付を誤認しない。
+  final RegExp _datePattern = RegExp(
+    r'(\d{4})\s*[./-]\s*(\d{1,2})\s*[./-]\s*(\d{1,2})',
+  );
+
+  final RegExp _japaneseDatePattern = RegExp(
+    r'(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日',
+  );
 
   static const List<String> _weekdays = [
     '月',
@@ -96,6 +113,10 @@ class _LineTalkAnalyzerPageState
   ];
 
   final List<_TalkMessage> _messages = [];
+
+  final Map<DateTime, int> _dailyMessageCounts = {};
+  DateTime? _latestTalkDate;
+  DateTime? _selectedSearchDate;
 
   @override
   void initState() {
@@ -215,11 +236,42 @@ class _LineTalkAnalyzerPageState
     }
   }
 
+  DateTime? _parseDateHeader(String line) {
+    Match? match = _datePattern.firstMatch(line);
+
+    match ??= _japaneseDatePattern.firstMatch(line);
+
+    if (match == null) {
+      return null;
+    }
+
+    final int? year = int.tryParse(match.group(1)!);
+    final int? month = int.tryParse(match.group(2)!);
+    final int? day = int.tryParse(match.group(3)!);
+
+    if (year == null || month == null || day == null) {
+      return null;
+    }
+
+    final DateTime date = DateTime(year, month, day);
+
+    if (date.year != year ||
+        date.month != month ||
+        date.day != day) {
+      return null;
+    }
+
+    return DateTime(date.year, date.month, date.day);
+  }
+
   void _analyzeTalk(String text) {
     _totalMessages = 0;
 
     _participants.clear();
     _messages.clear();
+    _dailyMessageCounts.clear();
+    _latestTalkDate = null;
+    _selectedSearchDate = null;
 
     _replyTimeTotals.clear();
     _replyCounts.clear();
@@ -244,42 +296,28 @@ class _LineTalkAnalyzerPageState
         text.split(RegExp(r'\r?\n'));
 
     for (final String rawLine in lines) {
-      final String line = rawLine.trimRight();
+      final String line = rawLine
+          .replaceFirst('\uFEFF', '')
+          .trimRight();
 
       if (line.isEmpty) {
         continue;
       }
 
-      final Match? dateMatch =
-          _datePattern.firstMatch(line);
-
-      if (dateMatch != null) {
-        final int? year =
-            int.tryParse(dateMatch.group(1)!);
-
-        final int? month =
-            int.tryParse(dateMatch.group(2)!);
-
-        final int? day =
-            int.tryParse(dateMatch.group(3)!);
-
-        if (year != null &&
-            month != null &&
-            day != null) {
-          currentDate = DateTime(
-            year,
-            month,
-            day,
-          );
-        }
-
-        continue;
-      }
-
+      // 先にメッセージ行を判定する。
+      // これにより、本文中に「2025/01/01」などが書かれていても
+      // 日付ヘッダーと誤認しない。
       final Match? messageMatch =
           _messagePattern.firstMatch(line);
 
       if (messageMatch == null) {
+        final DateTime? parsedDate =
+            _parseDateHeader(line);
+
+        if (parsedDate != null) {
+          currentDate = parsedDate;
+        }
+
         continue;
       }
 
@@ -308,6 +346,11 @@ class _LineTalkAnalyzerPageState
           elements[1].trim();
 
       if (participant.isEmpty) {
+        continue;
+      }
+
+      // LINEの「送信を取り消しました」は実際のトークとして集計しない。
+      if (line.endsWith('送信を取り消しました')) {
         continue;
       }
 
@@ -347,6 +390,20 @@ class _LineTalkAnalyzerPageState
         if (weekdayIndex >= 0 &&
             weekdayIndex < 7) {
           _weekdayCounts[weekdayIndex]++;
+        }
+
+        final DateTime dateKey = DateTime(
+          currentDate.year,
+          currentDate.month,
+          currentDate.day,
+        );
+
+        _dailyMessageCounts[dateKey] =
+            (_dailyMessageCounts[dateKey] ?? 0) + 1;
+
+        if (_latestTalkDate == null ||
+            dateKey.isAfter(_latestTalkDate!)) {
+          _latestTalkDate = dateKey;
         }
       }
     }
@@ -760,22 +817,6 @@ class _LineTalkAnalyzerPageState
         lasting.round();
   }
 
-  int get _maxWeekdayCount {
-    if (_weekdayCounts.isEmpty) {
-      return 1;
-    }
-
-    final int maxValue =
-        _weekdayCounts.reduce(
-      (int a, int b) =>
-          a > b ? a : b,
-    );
-
-    return maxValue == 0
-        ? 1
-        : maxValue;
-  }
-
   void _reset() {
     setState(() {
       _fileName = '';
@@ -785,6 +826,9 @@ class _LineTalkAnalyzerPageState
 
       _participants.clear();
       _messages.clear();
+      _dailyMessageCounts.clear();
+      _latestTalkDate = null;
+      _selectedSearchDate = null;
 
       for (int i = 0;
           i < _weekdayCounts.length;
@@ -964,7 +1008,7 @@ class _LineTalkAnalyzerPageState
           const SizedBox(height: 16),
           _buildLateNightCard(),
           const SizedBox(height: 16),
-          _buildWeekdayChartCard(),
+          _buildRecentSevenDaysCard(),
           const SizedBox(height: 18),
           _buildResetButton(),
         ],
@@ -2579,129 +2623,306 @@ if (highCompatibility && highLasting) {
     );
   }
 
-  Widget _buildWeekdayChartCard() {
+  String _formatDateLabel(DateTime date) {
+    return '${date.year}年${date.month}月${date.day}日（${_weekdays[date.weekday - 1]}）';
+  }
+
+  Future<void> _searchTalkDate() async {
+    if (_dailyMessageCounts.isEmpty) {
+      return;
+    }
+
+    final List<DateTime> dates =
+        _dailyMessageCounts.keys.toList();
+
+    DateTime earliestDate = dates.first;
+    DateTime latestDate = dates.first;
+
+    for (final DateTime date in dates) {
+      if (date.isBefore(earliestDate)) {
+        earliestDate = date;
+      }
+
+      if (date.isAfter(latestDate)) {
+        latestDate = date;
+      }
+    }
+
+    earliestDate = DateTime(
+      earliestDate.year,
+      earliestDate.month,
+      earliestDate.day,
+    );
+
+    // 最新日も実際に分析できた日付キーから決める。
+    latestDate = DateTime(
+      latestDate.year,
+      latestDate.month,
+      latestDate.day,
+    );
+
+    DateTime initialDate =
+        _selectedSearchDate ?? latestDate;
+
+    if (initialDate.isBefore(earliestDate)) {
+      initialDate = earliestDate;
+    }
+
+    if (initialDate.isAfter(latestDate)) {
+      initialDate = latestDate;
+    }
+
+    final DateTime? pickedDate =
+        await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: earliestDate,
+      lastDate: latestDate,
+      helpText: 'トークの日付を検索',
+      cancelText: 'キャンセル',
+      confirmText: '選択',
+      locale: const Locale('ja', 'JP'),
+    );
+
+    if (pickedDate == null || !mounted) {
+      return;
+    }
+
+    final DateTime dateKey = DateTime(
+      pickedDate.year,
+      pickedDate.month,
+      pickedDate.day,
+    );
+
+    setState(() {
+      _selectedSearchDate = dateKey;
+    });
+  }
+
+  Widget _buildRecentSevenDaysCard() {
+    final DateTime? latestDate = _latestTalkDate;
+
+    DateTime? earliestDate;
+    if (_dailyMessageCounts.isNotEmpty) {
+      final List<DateTime> dates =
+          _dailyMessageCounts.keys.toList()..sort();
+      earliestDate = DateTime(
+        dates.first.year,
+        dates.first.month,
+        dates.first.day,
+      );
+    }
+
+    if (latestDate == null || earliestDate == null) {
+      return _buildCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _buildSectionHeader(
+              icon: Icons.calendar_month_rounded,
+              title: '直近7日間のトーク履歴',
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '日付データを取得できませんでした。',
+              style: TextStyle(
+                fontSize: 13,
+                color: Colors.grey.shade700,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final DateTime latestDay = DateTime(
+      latestDate.year,
+      latestDate.month,
+      latestDate.day,
+    );
+
+    int maxCount = 0;
+
+    for (int i = 0; i < 7; i++) {
+      final DateTime dateKey =
+          latestDay.subtract(Duration(days: i));
+      final int count =
+          _dailyMessageCounts[dateKey] ?? 0;
+
+      if (count > maxCount) {
+        maxCount = count;
+      }
+    }
+
     return _buildCard(
       child: Column(
-        crossAxisAlignment:
-            CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _buildSectionHeader(
-            icon:
-                Icons.bar_chart_rounded,
-            title: '曜日別のトーク頻度',
+            icon: Icons.calendar_month_rounded,
+            title: '直近7日間のトーク履歴',
           ),
           const SizedBox(height: 7),
           Text(
-            '曜日ごとのメッセージ数を表示しています。',
+            'トーク履歴の最新日から、直近7日分を表示しています。',
             style: TextStyle(
               fontSize: 13,
-              color:
-                  Colors.grey.shade700,
+              height: 1.5,
+              color: Colors.grey.shade700,
             ),
           ),
-          const SizedBox(height: 20),
-          SizedBox(
-            height: 220,
-            child: Row(
-              crossAxisAlignment:
-                  CrossAxisAlignment.end,
-              children:
-                  List.generate(
-                7,
-                (int index) {
-                  final int count =
-                      _weekdayCounts[index];
+          const SizedBox(height: 16),
+          for (int i = 0; i < 7; i++) ...[
+            Builder(
+              builder: (BuildContext context) {
+                final DateTime dateKey =
+                    latestDay.subtract(Duration(days: i));
+                final int count =
+                    _dailyMessageCounts[dateKey] ?? 0;
+                final double ratio = maxCount == 0
+                    ? 0
+                    : count / maxCount;
 
-                  final double ratio =
-                      count /
-                          _maxWeekdayCount;
-
-                  final double barHeight =
-                      ratio == 0
-                          ? 8
-                          : 20 +
-                              (150 * ratio);
-
-                  return Expanded(
-                    child: Padding(
-                      padding:
-                          const EdgeInsets
-                              .symmetric(
-                        horizontal: 4,
-                      ),
-                      child: Column(
-                        mainAxisAlignment:
-                            MainAxisAlignment
-                                .end,
-                        children: [
-                          Text(
-                            '$count',
-                            style: TextStyle(
-                              fontSize: 11,
-                              fontWeight:
-                                  FontWeight.bold,
-                              color:
-                                  Colors.grey
-                                      .shade700,
-                            ),
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Row(
+                    children: [
+                      SizedBox(
+                        width: 146,
+                        child: Text(
+                          _formatDateLabel(dateKey),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF34443C),
                           ),
-                          const SizedBox(
-                              height: 5),
-                          Container(
-                            height: barHeight,
-                            width:
-                                double.infinity,
-                            decoration:
-                                const BoxDecoration(
-                              gradient:
-                                  LinearGradient(
-                                begin:
-                                    Alignment
-                                        .topCenter,
-                                end:
-                                    Alignment
-                                        .bottomCenter,
-                                colors: [
-                                  Color(
-                                    0xFF58D68D,
-                                  ),
-                                  Color(
-                                    0xFF06B653,
-                                  ),
-                                ],
-                              ),
-                              borderRadius:
-                                  BorderRadius
-                                      .vertical(
-                                top:
-                                    Radius
-                                        .circular(
-                                  9,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Container(
+                          height: 11,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE8F2EC),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: FractionallySizedBox(
+                            alignment: Alignment.centerLeft,
+                            widthFactor:
+                                ratio.clamp(0.0, 1.0),
+                            child: Container(
+                              decoration: BoxDecoration(
+                                gradient: const LinearGradient(
+                                  colors: [
+                                    Color(0xFF58D68D),
+                                    Color(0xFF06B653),
+                                  ],
                                 ),
+                                borderRadius: BorderRadius.circular(10),
                               ),
                             ),
                           ),
-                          const SizedBox(
-                              height: 8),
-                          Text(
-                            _weekdays[index],
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight:
-                                  FontWeight.bold,
-                              color:
-                                  Colors.grey
-                                      .shade700,
-                            ),
-                          ),
-                        ],
+                        ),
                       ),
-                    ),
-                  );
-                },
+                      const SizedBox(width: 8),
+                      SizedBox(
+                        width: 48,
+                        child: Text(
+                          '$count件',
+                          textAlign: TextAlign.end,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF19734A),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+          const SizedBox(height: 6),
+          const Divider(height: 1),
+          const SizedBox(height: 12),
+          Text(
+            '検索可能期間：${_formatDateLabel(earliestDate)}〜${_formatDateLabel(latestDate)}',
+            style: TextStyle(
+              fontSize: 11,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _searchTalkDate,
+              icon: const Icon(
+                Icons.calendar_month_rounded,
+                size: 19,
+              ),
+              label: const Text(
+                'カレンダーから日付を検索',
+                style: TextStyle(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF06A94D),
+                side: const BorderSide(
+                  color: Color(0xFF06A94D),
+                  width: 1.2,
+                ),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                padding: const EdgeInsets.symmetric(vertical: 13),
               ),
             ),
           ),
+          if (_selectedSearchDate != null) ...[
+            const SizedBox(height: 12),
+            Builder(
+              builder: (BuildContext context) {
+                final DateTime selectedDate =
+                    _selectedSearchDate!;
+                final int count =
+                    _dailyMessageCounts[selectedDate] ?? 0;
+
+                return Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF0F8F4),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: const Color(0xFFD2E9DD),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.search_rounded,
+                        color: Color(0xFF06B653),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Text(
+                          '${_formatDateLabel(selectedDate)}  $count件',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF315B47),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
         ],
       ),
     );
