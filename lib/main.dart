@@ -67,6 +67,19 @@ class _LineTalkAnalyzerPageState
       List<int>.filled(7, 0);
 
   int _favoriteCount = 0;
+  int _romanticFavoriteCount = 0;
+  int _favoriteQuestionCount = 0;
+  int _objectFavoriteCount = 0;
+  int _unknownFavoriteCount = 0;
+
+  int _romanticMorningCount = 0;
+  int _romanticDaytimeCount = 0;
+  int _romanticEveningCount = 0;
+  int _romanticNightCount = 0;
+  int _romanticLateNightCount = 0;
+
+  final List<_FavoriteEntry> _favoriteEntries = [];
+
   int _thanksCount = 0;
   int _lateNightCount = 0;
 
@@ -284,6 +297,17 @@ class _LineTalkAnalyzerPageState
     }
 
     _favoriteCount = 0;
+    _romanticFavoriteCount = 0;
+    _favoriteQuestionCount = 0;
+    _objectFavoriteCount = 0;
+    _unknownFavoriteCount = 0;
+    _romanticMorningCount = 0;
+    _romanticDaytimeCount = 0;
+    _romanticEveningCount = 0;
+    _romanticNightCount = 0;
+    _romanticLateNightCount = 0;
+    _favoriteEntries.clear();
+
     _thanksCount = 0;
     _lateNightCount = 0;
 
@@ -408,6 +432,8 @@ class _LineTalkAnalyzerPageState
       }
     }
 
+    _analyzeFavoriteExpressions();
+
     _calculateReplySpeed();
 
     if (_wordController.text.trim().isNotEmpty) {
@@ -417,6 +443,217 @@ class _LineTalkAnalyzerPageState
     }
 
     _calculateCompatibility();
+  }
+
+  static const List<String> _favoriteObjectWords = [
+    'ミセス',
+    'Mrs. GREEN APPLE',
+    'Mrs.GREEN APPLE',
+    'サザン',
+    'YOASOBI',
+    'Ado',
+    'あいみょん',
+    '米津玄師',
+    'Official髭男dism',
+    'ヒゲダン',
+    'King Gnu',
+    '藤井風',
+    'Vaundy',
+    'back number',
+    'ONE OK ROCK',
+    'RADWIMPS',
+    'Saucy Dog',
+    'sumika',
+    'Snow Man',
+    'BTS',
+    'K-POP',
+    'ディズニー',
+    'ポケモン',
+    'アニメ',
+    '漫画',
+    'マンガ',
+    '映画',
+    'ドラマ',
+    '曲',
+    '音楽',
+    '歌',
+    'ゲーム',
+    '猫',
+    'ネコ',
+    '犬',
+    '料理',
+    'ラーメン',
+    '寿司',
+    'カフェ',
+    '店',
+    '洋服',
+    '服',
+    'ブランド',
+    '食べ物',
+    'スイーツ',
+    'お菓子',
+  ];
+
+  String _messageBody(_TalkMessage message) {
+    final List<String> elements = message.rawText
+        .trim()
+        .split(RegExp(r'\s+'));
+
+    if (elements.length <= 2) {
+      return '';
+    }
+
+    return elements.sublist(2).join(' ').trim();
+  }
+
+  bool _containsAny(String text, List<String> words) {
+    for (final String word in words) {
+      if (word.isNotEmpty && text.contains(word)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _containsDirectTarget(
+    String body,
+    String sender,
+  ) {
+    final RegExp directTargetPattern = RegExp(
+      r'(私|僕|俺|うち|あなた|君|きみ|お前|自分|相手).*(大好き|好き)',
+    );
+
+    if (directTargetPattern.hasMatch(body)) {
+      return true;
+    }
+
+    for (final String participant in _participants) {
+      if (participant.isEmpty || participant == sender) {
+        continue;
+      }
+
+      if (body.contains(participant) &&
+          _containsAny(body, _favoriteWords)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  bool _isFavoriteQuestion(String body) {
+    if (!body.contains('好き')) {
+      return false;
+    }
+
+    return body.contains('好き？') ||
+        body.contains('好き?') ||
+        body.contains('好きなの') ||
+        body.contains('好きなん') ||
+        body.contains('好きかな');
+  }
+
+  bool _looksLikeRomanticPhrase(String body) {
+    final String normalized = body
+        .replaceAll('！', '')
+        .replaceAll('!', '')
+        .replaceAll('。', '')
+        .replaceAll('、', '')
+        .replaceAll('♪', '')
+        .trim();
+
+    final RegExp pattern = RegExp(
+      r'^(大好き|だいすき|ダイスキ|好き|すき|スキ)(だよ|だね|だな|なんだ|なんだよ|です|かも|すぎる|だよね|だった)?[\s💕❤️💗😊🥰☺️]*$',
+    );
+
+    return pattern.hasMatch(normalized);
+  }
+
+  _FavoriteCategory _classifyFavoriteMessage(
+    _TalkMessage message,
+  ) {
+    final String body = _messageBody(message);
+
+    if (body.isEmpty ||
+        !_containsAny(body, _favoriteWords)) {
+      return _FavoriteCategory.unknown;
+    }
+
+    if (_isFavoriteQuestion(body) &&
+        _containsDirectTarget(body, message.participant)) {
+      return _FavoriteCategory.question;
+    }
+
+    if (_containsAny(body, _favoriteObjectWords)) {
+      return _FavoriteCategory.object;
+    }
+
+    if (_containsDirectTarget(body, message.participant) ||
+        _looksLikeRomanticPhrase(body)) {
+      return _FavoriteCategory.romantic;
+    }
+
+    return _FavoriteCategory.unknown;
+  }
+
+  void _analyzeFavoriteExpressions() {
+    _romanticFavoriteCount = 0;
+    _favoriteQuestionCount = 0;
+    _objectFavoriteCount = 0;
+    _unknownFavoriteCount = 0;
+
+    _romanticMorningCount = 0;
+    _romanticDaytimeCount = 0;
+    _romanticEveningCount = 0;
+    _romanticNightCount = 0;
+    _romanticLateNightCount = 0;
+
+    _favoriteEntries.clear();
+
+    for (final _TalkMessage message in _messages) {
+      final int count = _countWordVariants(
+        _messageBody(message),
+        _favoriteWords,
+      );
+
+      if (count == 0) {
+        continue;
+      }
+
+      final _FavoriteCategory category =
+          _classifyFavoriteMessage(message);
+
+      if (category == _FavoriteCategory.romantic) {
+        _romanticFavoriteCount += count;
+
+        if (message.hour >= 5 && message.hour <= 10) {
+          _romanticMorningCount += count;
+        } else if (message.hour >= 11 && message.hour <= 16) {
+          _romanticDaytimeCount += count;
+        } else if (message.hour >= 17 && message.hour <= 20) {
+          _romanticEveningCount += count;
+        } else if (message.hour >= 21 && message.hour <= 23) {
+          _romanticNightCount += count;
+        } else {
+          _romanticLateNightCount += count;
+        }
+      } else if (category == _FavoriteCategory.question) {
+        _favoriteQuestionCount += count;
+      } else if (category == _FavoriteCategory.object) {
+        _objectFavoriteCount += count;
+      } else {
+        _unknownFavoriteCount += count;
+      }
+
+      _favoriteEntries.add(
+        _FavoriteEntry(
+          category: category,
+          count: count,
+          message: message,
+        ),
+      );
+    }
   }
 
   void _calculateReplySpeed() {
@@ -680,7 +917,7 @@ class _LineTalkAnalyzerPageState
     }
 
     final int positiveWords =
-        _favoriteCount + _thanksCount;
+        _romanticFavoriteCount + _thanksCount;
 
     double positiveScore = 0;
 
@@ -837,6 +1074,17 @@ class _LineTalkAnalyzerPageState
       }
 
       _favoriteCount = 0;
+      _romanticFavoriteCount = 0;
+      _favoriteQuestionCount = 0;
+      _objectFavoriteCount = 0;
+      _unknownFavoriteCount = 0;
+      _romanticMorningCount = 0;
+      _romanticDaytimeCount = 0;
+      _romanticEveningCount = 0;
+      _romanticNightCount = 0;
+      _romanticLateNightCount = 0;
+      _favoriteEntries.clear();
+
       _thanksCount = 0;
       _lateNightCount = 0;
 
@@ -1005,6 +1253,8 @@ class _LineTalkAnalyzerPageState
           _buildFreeWordCard(),
           const SizedBox(height: 16),
           _buildStandardWordCard(),
+          const SizedBox(height: 16),
+          _buildFavoriteAnalysisCard(),
           const SizedBox(height: 16),
           _buildLateNightCard(),
           const SizedBox(height: 16),
@@ -1739,12 +1989,12 @@ if (highCompatibility && highLasting) {
       }
     }
 
-    if (_favoriteCount >= 10) {
-      evaluations.add('💖 「好き」系の言葉がたくさん見つかって、好意がしっかり伝わるトーク！');
-    } else if (_favoriteCount >= 3) {
-      evaluations.add('💕 「好き」系の言葉もしっかり登場。二人の好意が感じられます！');
-    } else if (_favoriteCount >= 1) {
-      evaluations.add('💗 「好き」系の言葉も見つかりました。小さなプラス要素です！');
+    if (_romanticFavoriteCount >= 10) {
+      evaluations.add('💖 相手への「好き」がたくさん見つかって、好意がしっかり伝わるトーク！');
+    } else if (_romanticFavoriteCount >= 3) {
+      evaluations.add('💕 相手への「好き」もしっかり登場。二人の好意が感じられます！');
+    } else if (_romanticFavoriteCount >= 1) {
+      evaluations.add('💗 相手への「好き」も見つかりました。小さなプラス要素です！');
     }
 
     if (_thanksCount >= 5) {
@@ -2534,6 +2784,511 @@ if (highCompatibility && highLasting) {
     );
   }
 
+  String _favoriteCategoryLabel(
+    _FavoriteCategory category,
+  ) {
+    switch (category) {
+      case _FavoriteCategory.romantic:
+        return '相手への好き';
+      case _FavoriteCategory.question:
+        return '好き？と質問';
+      case _FavoriteCategory.object:
+        return '対象への好き';
+      case _FavoriteCategory.unknown:
+        return '判定保留';
+    }
+  }
+
+  Color _favoriteCategoryColor(
+    _FavoriteCategory category,
+  ) {
+    switch (category) {
+      case _FavoriteCategory.romantic:
+        return const Color(0xFFE2567F);
+      case _FavoriteCategory.question:
+        return const Color(0xFF8A5CA8);
+      case _FavoriteCategory.object:
+        return const Color(0xFF368B67);
+      case _FavoriteCategory.unknown:
+        return const Color(0xFF8A8F8D);
+    }
+  }
+
+  String _formatFavoriteDate(_TalkMessage message) {
+    if (message.date == null) {
+      return '${message.hour.toString().padLeft(2, '0')}:${message.minute.toString().padLeft(2, '0')}';
+    }
+
+    return '${message.date!.year}/${message.date!.month.toString().padLeft(2, '0')}/${message.date!.day.toString().padLeft(2, '0')} ${message.hour.toString().padLeft(2, '0')}:${message.minute.toString().padLeft(2, '0')}';
+  }
+
+  String _favoriteTimingText() {
+    final List<_FavoriteTiming> timings = [
+      _FavoriteTiming('朝', _romanticMorningCount),
+      _FavoriteTiming('昼', _romanticDaytimeCount),
+      _FavoriteTiming('夕方', _romanticEveningCount),
+      _FavoriteTiming('夜', _romanticNightCount),
+      _FavoriteTiming('深夜', _romanticLateNightCount),
+    ];
+
+    _FavoriteTiming top = timings.first;
+
+    for (final _FavoriteTiming timing in timings) {
+      if (timing.count > top.count) {
+        top = timing;
+      }
+    }
+
+    if (top.count == 0) {
+      return '相手への「好き」と推定できる発言は、まだありません。';
+    }
+
+    return '相手への「好き」は主に${top.label}に伝えています。';
+  }
+
+  Widget _buildFavoriteTimingBar(
+    String label,
+    int count,
+    int maxCount,
+  ) {
+    final double ratio = maxCount == 0
+        ? 0
+        : count / maxCount;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 9),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 36,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF4A544F),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Container(
+              height: 10,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF0F1F1),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: FractionallySizedBox(
+                alignment: Alignment.centerLeft,
+                widthFactor: ratio,
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE86A8D),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 28,
+            child: Text(
+              '$count',
+              textAlign: TextAlign.right,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF4A544F),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFavoriteMiniCount(
+    String label,
+    int count,
+    IconData icon,
+    Color iconColor,
+  ) {
+    return Expanded(
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 12,
+        ),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: const Color(0xFFE8ECEA),
+          ),
+        ),
+        child: Column(
+          children: [
+            Icon(
+              icon,
+              size: 19,
+              color: iconColor,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF555E5A),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              '$count回',
+              style: const TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w900,
+                color: Color(0xFF35433D),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFavoriteAnalysisCard() {
+    _FavoriteEntry? firstRomantic;
+    _FavoriteEntry? latestRomantic;
+
+    for (final _FavoriteEntry entry in _favoriteEntries) {
+      if (entry.category != _FavoriteCategory.romantic) {
+        continue;
+      }
+
+      if (firstRomantic == null ||
+          _compareTalkMessageTime(
+                entry.message,
+                firstRomantic.message,
+              ) <
+              0) {
+        firstRomantic = entry;
+      }
+
+      if (latestRomantic == null ||
+          _compareTalkMessageTime(
+                entry.message,
+                latestRomantic.message,
+              ) >
+              0) {
+        latestRomantic = entry;
+      }
+    }
+
+    final int maxTimingCount = [
+      _romanticMorningCount,
+      _romanticDaytimeCount,
+      _romanticEveningCount,
+      _romanticNightCount,
+      _romanticLateNightCount,
+    ].reduce((int a, int b) => a > b ? a : b);
+
+    final List<_FavoriteEntry> romanticEntries =
+        _favoriteEntries
+            .where(
+              (_FavoriteEntry entry) =>
+                  entry.category == _FavoriteCategory.romantic,
+            )
+            .toList();
+
+    romanticEntries.sort(
+      (_FavoriteEntry a, _FavoriteEntry b) =>
+          _compareTalkMessageTime(b.message, a.message),
+    );
+
+    return _buildCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildSectionHeader(
+            icon: Icons.favorite_rounded,
+            title: '「好き」の意味までチェック',
+            accentPink: true,
+          ),
+          const SizedBox(height: 7),
+          Text(
+            '「ミセス好きだよ」のような対象への「好き」と、相手への「好き」を分けて集計します。',
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.55,
+              color: Colors.grey.shade700,
+            ),
+          ),
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              _buildFavoriteMiniCount(
+                '相手への好き',
+                _romanticFavoriteCount,
+                Icons.favorite_rounded,
+                const Color(0xFFE2567F),
+              ),
+              const SizedBox(width: 8),
+              _buildFavoriteMiniCount(
+                '好き？と質問',
+                _favoriteQuestionCount,
+                Icons.help_rounded,
+                const Color(0xFF8A5CA8),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _buildFavoriteMiniCount(
+                '対象への好き',
+                _objectFavoriteCount,
+                Icons.music_note_rounded,
+                const Color(0xFF368B67),
+              ),
+              const SizedBox(width: 8),
+              _buildFavoriteMiniCount(
+                '判定保留',
+                _unknownFavoriteCount,
+                Icons.help_outline_rounded,
+                const Color(0xFF8A8F8D),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF7F9),
+              borderRadius: BorderRadius.circular(15),
+              border: Border.all(
+                color: const Color(0xFFF6DCE4),
+              ),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  '💗 伝えるタイミング',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF8E3657),
+                  ),
+                ),
+                const SizedBox(height: 5),
+                Text(
+                  _favoriteTimingText(),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.5,
+                    color: Color(0xFF5A4A50),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _buildFavoriteTimingBar(
+                  '朝',
+                  _romanticMorningCount,
+                  maxTimingCount,
+                ),
+                _buildFavoriteTimingBar(
+                  '昼',
+                  _romanticDaytimeCount,
+                  maxTimingCount,
+                ),
+                _buildFavoriteTimingBar(
+                  '夕方',
+                  _romanticEveningCount,
+                  maxTimingCount,
+                ),
+                _buildFavoriteTimingBar(
+                  '夜',
+                  _romanticNightCount,
+                  maxTimingCount,
+                ),
+                _buildFavoriteTimingBar(
+                  '深夜',
+                  _romanticLateNightCount,
+                  maxTimingCount,
+                ),
+              ],
+            ),
+          ),
+          if (firstRomantic != null) ...[
+            const SizedBox(height: 14),
+            _buildFavoriteMomentCard(
+              title: '最初に見つかった相手への「好き」',
+              entry: firstRomantic,
+            ),
+          ],
+          if (latestRomantic != null &&
+              latestRomantic != firstRomantic) ...[
+            const SizedBox(height: 9),
+            _buildFavoriteMomentCard(
+              title: '最近の相手への「好き」',
+              entry: latestRomantic,
+            ),
+          ],
+          if (romanticEntries.isNotEmpty) ...[
+            const SizedBox(height: 14),
+            const Text(
+              '最近の発言',
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF394640),
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final _FavoriteEntry entry
+                in romanticEntries.take(5)) ...[
+              _buildFavoriteHistoryRow(entry),
+              if (entry != romanticEntries.take(5).last)
+                const SizedBox(height: 7),
+            ],
+          ],
+          if (_unknownFavoriteCount > 0) ...[
+            const SizedBox(height: 12),
+            Text(
+              '※ 文脈だけでは意味を決めにくい「好き」は判定保留にしています。',
+              style: TextStyle(
+                fontSize: 11,
+                color: Colors.grey.shade600,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  int _compareTalkMessageTime(
+    _TalkMessage a,
+    _TalkMessage b,
+  ) {
+    if (a.date != null && b.date != null) {
+      final int dateCompare = a.date!.compareTo(b.date!);
+      if (dateCompare != 0) {
+        return dateCompare;
+      }
+    }
+
+    final int aMinutes = a.hour * 60 + a.minute;
+    final int bMinutes = b.hour * 60 + b.minute;
+
+    return aMinutes.compareTo(bMinutes);
+  }
+
+  Widget _buildFavoriteMomentCard({
+    required String title,
+    required _FavoriteEntry entry,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(13),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: const Color(0xFFEAEDEB),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Colors.grey.shade600,
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            '${_formatFavoriteDate(entry.message)}  ${entry.message.participant}',
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w800,
+              color: Color(0xFF44504A),
+            ),
+          ),
+          const SizedBox(height: 5),
+          Text(
+            _messageBody(entry.message),
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.45,
+              color: Color(0xFF28342F),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFavoriteHistoryRow(
+    _FavoriteEntry entry,
+  ) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 10,
+      ),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAF9),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            Icons.favorite_rounded,
+            size: 17,
+            color: _favoriteCategoryColor(entry.category),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${_formatFavoriteDate(entry.message)}  ${entry.message.participant}',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.grey.shade600,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  _messageBody(entry.message),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    height: 1.4,
+                    color: Color(0xFF2F3935),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildLateNightCard() {
     return Container(
       width: double.infinity,
@@ -3174,6 +3929,35 @@ if (highCompatibility && highLasting) {
       ],
     );
   }
+}
+
+enum _FavoriteCategory {
+  romantic,
+  question,
+  object,
+  unknown,
+}
+
+class _FavoriteEntry {
+  final _FavoriteCategory category;
+  final int count;
+  final _TalkMessage message;
+
+  const _FavoriteEntry({
+    required this.category,
+    required this.count,
+    required this.message,
+  });
+}
+
+class _FavoriteTiming {
+  final String label;
+  final int count;
+
+  const _FavoriteTiming(
+    this.label,
+    this.count,
+  );
 }
 
 class _TalkMessage {
