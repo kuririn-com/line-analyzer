@@ -1,0 +1,6 @@
+# Android-only generation leaves the published iOS assets and config untouched.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: "ios/Runner/Assets.xcassets/AppIcon.appiconset/AppIcon-1024.png"
+  min_sdk_android: 24

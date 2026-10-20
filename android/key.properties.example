@@ -1,0 +1,6 @@
+# Copy to key.properties after the upload key has been approved/provided.
+# Use forward slashes in a Windows path. Relative paths resolve from android/.
+storeFile=C:/path/to/upload-keystore.jks
+storePassword=REPLACE_LOCALLY
+keyAlias=upload
+keyPassword=REPLACE_LOCALLY

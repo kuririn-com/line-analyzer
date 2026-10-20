@@ -1,4 +1,4 @@
-package com.example.line_analyzer
+package com.kuririn.futaritalk
 
 import io.flutter.embedding.android.FlutterActivity
 

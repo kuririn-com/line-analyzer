@@ -1,5 +1,8 @@
 # line_analyzer
 
+Android版「ふたりとーく」のビルド・広告ID・署名・Play公開準備は
+[Android公開準備](docs/ANDROID_RELEASE.md) を参照してください。
+
 A new Flutter project.
 
 ## Getting Started

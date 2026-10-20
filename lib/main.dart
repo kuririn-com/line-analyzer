@@ -7,10 +7,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
+import 'ad_configuration.dart';
+import 'android_ad_consent.dart';
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  if (!kIsWeb) {
+  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
     MobileAds.instance.initialize();
   }
 
@@ -101,6 +104,7 @@ class _LineTalkAnalyzerPageState
 
   BannerAd? _bannerAd;
   bool _isBannerAdReady = false;
+  bool _privacyOptionsRequired = false;
 
   final RegExp _messagePattern =
       RegExp(r'^(\d{2}):(\d{2})');
@@ -135,15 +139,34 @@ class _LineTalkAnalyzerPageState
   void initState() {
     super.initState();
 
-    if (!kIsWeb) {
-      _loadBannerAd();
+    _prepareBannerAd();
+  }
+
+  Future<void> _prepareBannerAd() async {
+    if (AdConfiguration.bannerId == null) return;
+    try {
+      if (defaultTargetPlatform == TargetPlatform.android) {
+        if (kReleaseMode) {
+          final canRequestAds = await AndroidAdConsent.prepare();
+          final privacyRequired = await AndroidAdConsent.privacyOptionsRequired;
+          if (!mounted) return;
+          setState(() => _privacyOptionsRequired = privacyRequired);
+          if (!canRequestAds) return;
+        }
+        await MobileAds.instance.initialize();
+      }
+      if (mounted) _loadBannerAd();
+    } catch (error) {
+      // Advertising availability must not prevent local file analysis.
+      debugPrint('Ads unavailable: $error');
     }
   }
 
   void _loadBannerAd() {
+    final adUnitId = AdConfiguration.bannerId;
+    if (adUnitId == null) return;
     final BannerAd bannerAd = BannerAd(
-      adUnitId:
-          'ca-app-pub-9003840415284448/3327652245',
+      adUnitId: adUnitId,
       size: AdSize.banner,
       request: const AdRequest(),
       listener: BannerAdListener(
@@ -1120,6 +1143,20 @@ class _LineTalkAnalyzerPageState
                   : _buildAnalysisScreen(),
             ),
             _buildAdBanner(),
+            if (_privacyOptionsRequired)
+              TextButton(
+                onPressed: () async {
+                  await AndroidAdConsent.showPrivacyOptions();
+                  if (!mounted) return;
+                  _bannerAd?.dispose();
+                  setState(() {
+                    _bannerAd = null;
+                    _isBannerAdReady = false;
+                  });
+                  await _prepareBannerAd();
+                },
+                child: const Text('広告のプライバシー設定'),
+              ),
           ],
         ),
       ),
